@@ -1,0 +1,117 @@
+:root {
+  --width: clamp(300px, 100vw, 600px);
+  --px: calc(var(--width) / 600);
+  --unit: calc(0.01 * var(--width));
+}
+
+body {
+  background-color: #8babf3;
+  margin: 0px;
+}
+
+.center {
+  width: var(--width);
+  margin: auto;
+  padding-top: calc(2 * var(--unit));
+}
+
+div.image {
+  position: relative;
+  display: inline-block;
+  width: calc(380 * var(--px));
+  height: calc(180 * var(--px));
+  padding: var(--unit);
+}
+
+.image a {
+  position: absolute;
+}
+
+.image img {
+  position: relative;
+  width: calc(382 * var(--px));
+  height: calc(182 * var(--px));
+  left: calc(-1 * var(--px));
+  top: calc(-1 * var(--px));
+}
+
+.image span {
+  position: absolute;
+  left: calc(3 * var(--unit));
+  bottom: calc(3 * var(--unit));
+  padding: 0 var(--unit);
+  background-color: rgba(0, 0, 0, 0.2);
+  font-family: Caracteres L1;
+  color: white;
+  font-size: calc(5 * var(--unit));
+  overflow: visible;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.timer, .winner, .user, .lobby, .links {
+  margin: 0;
+  padding: var(--unit);
+}
+
+.scores {
+  width: calc(100% - 4 * var(--unit));
+  padding: calc(2 * var(--unit));
+}
+
+.row {
+  color: #fff;
+  font-family: sans-serif;
+  font-weight: bold;
+  font-size: calc(5 * var(--unit));
+  text-shadow: 0px 0px 2px #000, 2px 2px 2px #000;
+}
+
+span.name {
+  display: inline-block;
+  width: calc(40 * var(--unit));
+  padding-right: calc(2 * var(--unit));
+}
+
+span.score {
+  display: inline-block;
+  width: calc(5 * var(--unit));
+  text-align: center;
+}
+
+span.time {
+  display: inline-block;
+  width: calc(30 * var(--unit));
+  padding-left: calc(2 * var(--unit));
+  text-align: right;
+}
+
+.score {
+  font-family: "Caracteres L1";
+  font-weight: 1000;
+}
+
+.gradeS {
+  color: #58a1e8;
+}
+
+.gradeA {
+  color: #fcd28c;
+}
+
+.gradeB {
+  color: #908f8b;
+}
+
+.gradeC {
+  color: #493832;
+}
+
+.gradeD {
+  color: #465068;
+}
+
+@font-face {
+  font-family: "Caracteres L1";
+  src: local("Caracteres L1"), url("Caracteres L1.ttf") format("truetype");
+}

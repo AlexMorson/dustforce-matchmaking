@@ -1,0 +1,30 @@
+Client    Client    Client
+DEALER    DEALER    DEALER
+  ^         ^         ^
+  |         |         |
+  +---------+---------+    Frontend
+            |
+            V
+          ROUTER
+          Manager SUB <------ PUB DustkidEvents
+          ROUTER
+            ^
+            |
+          XXXXX Let's not introduce this complexity
+            |
+  +---------+---------+    Backend
+  |         |         |
+  V         V         V
+DEALER    DEALER    DEALER
+Lobby     Lobby     Lobby
+
+
+Request types:
+- Create(user_id: int)
+- Join(lobby_id: int, user_id: int)
+- Leave()
+
+Response types:
+- Lobby(lobby_id: int)
+- Map(map_id: int)
+- Score(user_id: int, completion: int, finesse: int, time: int)

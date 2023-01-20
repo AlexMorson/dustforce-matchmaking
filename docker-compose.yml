@@ -1,0 +1,21 @@
+version: "3"
+services:
+  nginx:
+    depends_on:
+      - "frontend"
+      - "backend"
+    restart: "always"
+    build:
+      context: "./nginx"
+    ports:
+      - "3000:80"
+  frontend:
+    build:
+      context: "./frontend"
+    ports:
+      - "8001:80"
+  backend:
+    build:
+      context: "./backend"
+    ports:
+      - "8002:80"
