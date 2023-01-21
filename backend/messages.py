@@ -3,26 +3,29 @@
 from __future__ import annotations
 
 import json
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 
-def to_bytes(message: Message) -> bytes:
+def dump_str(message: Message) -> str:
+    """Convert a message to a string."""
+    return json.dumps(message)
+
+def dump_bytes(message: Message) -> bytes:
     """Convert a message to bytes."""
-    assert "type" in message
     return json.dumps(message).encode()
 
-
-def from_bytes(data: bytes) -> dict | None:
-    """Parse and validate a message."""
+def load(data: bytes | str) -> Message | None:
+    """Parse and validate a message from bytes or a string."""
     try:
-        event = json.loads(data.decode())
+        event = json.loads(data)
     except ValueError:
         return None
     if not isinstance(event, dict):
         return None
     if "type" not in event:
         return None
-    return event
+    # FIXME: Should definitely be doing more validation to justify this cast
+    return cast(Message, event)
 
 
 # Frontend -> Backend
@@ -55,6 +58,25 @@ def leave() -> Leave:
     return {"type": "leave"}
 
 
+# Frontend <-> Client
+
+
+class Ping(TypedDict):
+    type: Literal["ping"]
+
+
+def ping() -> Ping:
+    return {"type": "ping"}
+
+
+class Pong(TypedDict):
+    type: Literal["pong"]
+
+
+def pong() -> Pong:
+    return {"type": "pong"}
+
+
 # Backend -> Client
 
 
@@ -85,4 +107,4 @@ class State(TypedDict):
     scores: list[Score]
 
 
-Message = Create | Join | Leave | State
+Message = Create | Join | Leave | State | Ping | Pong

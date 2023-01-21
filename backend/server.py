@@ -28,7 +28,7 @@ BREAK_TIME = timedelta(seconds=30)
 
 
 async def get_level_filename(id: int) -> str | None:
-    url = f"http://atlas.dustforce.com/gi/downloader.php?id={id}"
+    url = f"https://atlas.dustforce.com/gi/downloader.php?id={id}"
     async with ClientSession() as session, session.head(url) as response:
         content_disposition = response.headers.get("Content-Disposition")
         if content_disposition is None:
@@ -63,7 +63,7 @@ class Level:
 
     @property
     def image(self) -> str:
-        return f"http://atlas.dustforce.com/gi/maps/{self.filename}.png"
+        return f"https://atlas.dustforce.com/gi/maps/{self.filename}.png"
 
     @property
     def install_play(self) -> str:
@@ -81,11 +81,11 @@ class Level:
             # Stock maps do not have ids
             return None
         name, id = parts
-        return f"http://atlas.dustforce.com/{id}/{name}"
+        return f"https://atlas.dustforce.com/{id}/{name}"
 
     @property
     def dustkid(self) -> str:
-        return f"http://dustkid.com/level/{self.filename}"
+        return f"https://dustkid.com/level/{self.filename}"
 
     async def stats(self) -> LevelStats:
         url = f"https://dustkid.com/json/level/{self.filename}"
@@ -360,7 +360,7 @@ class Score:
 async def lookup_user(user_id: int) -> str | None:
     if not (1 <= user_id <= 1_000_000):
         return None
-    url = f"http://df.hitboxteam.com/backend6/userSearch.php?userid={user_id}"
+    url = f"https://df.hitboxteam.com/backend6/userSearch.php?userid={user_id}"
     async with ClientSession() as session:
         async with session.get(url) as response:
             result = await response.json()
@@ -383,7 +383,7 @@ class Manager:
 
         self.max_level_id = 10_000
 
-    async def run(self):
+    async def run(self) -> None:
         self.clients_socket.bind(CLIENTS_URL)
         self.events_socket.connect(EVENTS_URL)
         self.events_socket.subscribe(b"")
@@ -397,7 +397,7 @@ class Manager:
 
             if events.get(self.clients_socket) == zmq.POLLIN:
                 identity, data = await self.clients_socket.recv_multipart()
-                message = messages.from_bytes(data)
+                message = messages.load(data)
                 if message is not None:
                     await self.handle_message(identity, message)
                 else:
@@ -408,7 +408,7 @@ class Manager:
                 event = Event.parse_raw(data)
                 await self.handle_dustkid_event(event)
 
-    async def handle_message(self, identity: bytes, message: dict):
+    async def handle_message(self, identity: bytes, message: messages.Message):
         logger.debug(
             "Handling frontend message: identity=%s message=%s", identity, message
         )

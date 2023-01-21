@@ -38,9 +38,6 @@ const EXAMPLE_STATE = {
   ],
 };
 
-const params = new URLSearchParams(window.location.search);
-const lobby = params.get("lobby");
-
 function useTime() {
   const [time, setTime] = useState(() => new Date());
   useEffect(() => {
@@ -62,11 +59,86 @@ function formatTime(ms) {
   return minutes.toString() + ":" + seconds.toString().padStart(2, "0");
 }
 
+class ReconnectingWebSocket {
+  constructor(url) {
+    this.url = url;
+    this.ws = null;
+
+    this.attempts = 0;
+    this.closed = false;
+
+    this.pingTimer = null;
+    this.pongTimer = null;
+
+    this.onmessage = () => {};
+    this.onclose = () => {};
+
+    this.connect();
+  }
+
+  connect() {
+    if (this.closed) return;
+
+    this.ws = new WebSocket(this.url);
+    this.ws.onmessage = (event) => {
+      this.heartbeat();
+      this.onmessage(event);
+    };
+    this.ws.onopen = event => {
+      this.attempts = 0;
+      this.heartbeat();
+    };
+    this.ws.onclose = (event) => {
+      if (event.wasClean) this.close();
+      else if (!this.closed) this.reconnect();
+    };
+  }
+
+  reconnect() {
+    clearTimeout(this.pingTimer);
+    clearTimeout(this.pongTimer);
+    this.ws.close();
+    ++this.attempts;
+    setTimeout(() => this.connect(), 1000 * Math.min(30, Math.pow(2, this.attempts - 1)));
+  }
+
+  heartbeat() {
+    clearTimeout(this.pingTimer);
+    clearTimeout(this.pongTimer);
+    this.pingTimer = setTimeout(() => this.ping(), 5000);
+  }
+
+  ping() {
+    this.ws.send(JSON.stringify({ type: "ping" }));
+    this.pongTimer = setTimeout(() => this.reconnect(), 5000);
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    clearTimeout(this.pingTimer);
+    clearTimeout(this.pongTimer);
+    this.ws.close();
+    this.onclose();
+  }
+}
+
 function App() {
   const [state, setState] = useState({});
   const [socket, setSocket] = useState(null);
   const [user, setUser] = useState("");
   const time = useTime();
+
+  const params = new URLSearchParams(window.location.search);
+  const lobby = state.lobby ?? params.get("lobby");
+
+  const eventsUrl = new URL("/", window.location.href);
+  eventsUrl.protocol = eventsUrl.protocol.replace("http", "ws");
+  if (user) eventsUrl.searchParams.set("user", user);
+  if (lobby) eventsUrl.searchParams.set("lobby", lobby);
+
+  // Ensure that reconnections use the correct lobby id
+  if (socket) socket.url = eventsUrl;
 
   const onMessage = (event) => {
     let data;
@@ -84,7 +156,9 @@ function App() {
 
     const { type, ...args } = data;
 
-    if (type == "state") {
+    if (type == "pong") {
+      console.debug("Got pong");
+    } else if (type == "state") {
       console.debug("Received new state", args);
       setState(args);
     } else {
@@ -92,27 +166,19 @@ function App() {
     }
   };
 
-  const onJoin = () => {
-    if (socket) socket.close();
-    setSocket(null);
-
+  const connect = () => {
     if (!user) return;
 
-    const url = new URL("/", window.location.href);
-    url.protocol = url.protocol.replace("http", "ws");
-    url.searchParams.set("user", user);
-    if (lobby) url.searchParams.set("lobby", lobby);
-
-    const newSocket = new WebSocket(url);
+    const newSocket = new ReconnectingWebSocket(eventsUrl);
     setSocket(newSocket);
     newSocket.onmessage = onMessage;
-    newSocket.onerror = (event) => {
-      console.error("Websocket onerror", event);
-    };
-    newSocket.onclose = (event) => {
-      console.debug("Websocket onclose", event);
+    newSocket.onclose = () => {
+      setSocket(null);
+      setState({});
     };
   };
+
+  const onJoin = () => connect();
 
   const onLeave = () => {
     if (socket) socket.close();
@@ -178,7 +244,6 @@ function App() {
 function Scores({ scores }) {
   const grade = (score) => "DCBAS".charAt(score - 1);
   let rows = [];
-  // scores.sort(() => Math.random() - 0.5);
   for (const score of scores) {
     const time = score.time ? (score.time / 1000).toFixed(3) : "";
 

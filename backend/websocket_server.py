@@ -40,24 +40,29 @@ class WebsocketHandler:
 
         if lobby_id is None:
             logger.info("Sending Create(%s)", user_id)
-            await self.backend.send(messages.to_bytes(messages.create(int(user_id))))
+            await self.backend.send(messages.dump_bytes(messages.create(int(user_id))))
         else:
             logger.info("Sending Join(%s, %s)", user_id, lobby_id)
             await self.backend.send(
-                messages.to_bytes(messages.join(int(user_id), int(lobby_id)))
+                messages.dump_bytes(messages.join(int(user_id), int(lobby_id)))
             )
 
         try:
             wait_closed = asyncio.create_task(self.websocket.wait_closed())
+            read_websocket = asyncio.create_task(self.websocket.recv())
             read_backend = self.backend.recv()
-            pending = [wait_closed, read_backend]
+            pending = {wait_closed, read_websocket, read_backend}
             while True:
                 done, pending = await asyncio.wait(
                     pending, return_when=asyncio.FIRST_COMPLETED
                 )
-
                 if wait_closed in done:
                     break
+
+                if read_websocket in done:
+                    await self.handle_websocket_event(await read_websocket)
+                    read_websocket = asyncio.create_task(self.websocket.recv())
+                    pending.add(read_websocket)
 
                 if read_backend in done:
                     await self.handle_backend_event(await read_backend)  # type: ignore
@@ -70,14 +75,29 @@ class WebsocketHandler:
             pass
         finally:
             logger.info("Sending Leave()")
-            self.backend.send(messages.to_bytes(messages.leave()))
+            self.backend.send(messages.dump_bytes(messages.leave()))
+
+    async def handle_websocket_event(self, data: bytes) -> None:
+        message = messages.load(data)
+        if message is None:
+            logger.warning("Recieved invalid websocket event: %s", data)
+            return
+
+        logger.debug("Recieved websocket event: %s", message)
+        if message["type"] == "ping":
+            await self.websocket.send(messages.dump_str(messages.pong()))
 
     async def handle_backend_event(self, data: bytes) -> None:
-        logger.debug("Recieved event: %s", data.decode())
-        await self.websocket.send(data.decode())
+        message = messages.load(data)
+        if message is None:
+            logger.warning("Recieved invalid backend event: %s", data)
+            return
+
+        logger.debug("Recieved backend event: %s", message)
+        await self.websocket.send(messages.dump_str(message))
 
 
-async def main():
+async def main() -> None:
     async with websockets.serve(WebsocketHandler.create, host="0.0.0.0", port=80):  # type: ignore
         await asyncio.Future()
 
