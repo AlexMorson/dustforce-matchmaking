@@ -68,6 +68,30 @@ function App() {
   const [user, setUser] = useState("");
   const time = useTime();
 
+  const onMessage = (event) => {
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch (error) {
+      console.warn("Could not parse websocket event data", event.data);
+      return;
+    }
+
+    if (!data.hasOwnProperty("type")) {
+      console.warn("Websocket event is missing field 'type'", data);
+      return;
+    }
+
+    const { type, ...args } = data;
+
+    if (type == "state") {
+      console.debug("Received new state", args);
+      setState(args);
+    } else {
+      console.warn("Received unknown event type", data);
+    }
+  };
+
   const onJoin = () => {
     if (socket) socket.close();
     setSocket(null);
@@ -81,11 +105,12 @@ function App() {
 
     const newSocket = new WebSocket(url);
     setSocket(newSocket);
-    newSocket.onmessage = (event) => {
-      const newState = JSON.parse(event.data);
-      console.log("Received new state", newState);
-      // TODO: Validate state
-      setState(newState);
+    newSocket.onmessage = onMessage;
+    newSocket.onerror = (event) => {
+      console.error("Websocket onerror", event);
+    };
+    newSocket.onclose = (event) => {
+      console.debug("Websocket onclose", event);
     };
   };
 

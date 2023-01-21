@@ -1,5 +1,4 @@
 aiohttp
-bidict
 pydantic
 websockets
 zmq

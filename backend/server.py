@@ -237,6 +237,7 @@ class Lobby:
         )
 
         state: messages.State = {
+            "type": "state",
             "lobby_id": self.id,
             "level": None,
             "deadline": None,
@@ -396,23 +397,26 @@ class Manager:
 
             if events.get(self.clients_socket) == zmq.POLLIN:
                 identity, data = await self.clients_socket.recv_multipart()
-                message = messages.Message.from_bytes(data)
-                await self.handle_message(identity, message)
+                message = messages.from_bytes(data)
+                if message is not None:
+                    await self.handle_message(identity, message)
+                else:
+                    logger.warning("Received invalid message: %s", message)
 
             if events.get(self.events_socket) == zmq.POLLIN:
                 (data,) = await self.events_socket.recv_multipart()
                 event = Event.parse_raw(data)
                 await self.handle_dustkid_event(event)
 
-    async def handle_message(self, identity: bytes, message: messages.Message):
+    async def handle_message(self, identity: bytes, message: dict):
         logger.debug(
             "Handling frontend message: identity=%s message=%s", identity, message
         )
-        if isinstance(message, messages.Create):
-            await self.handle_create(identity, message.user_id)
-        elif isinstance(message, messages.Join):
-            await self.handle_join(identity, message.user_id, message.lobby_id)
-        elif isinstance(message, messages.Leave):
+        if message["type"] == "create":
+            await self.handle_create(identity, message["user_id"])
+        elif message["type"] == "join":
+            await self.handle_join(identity, message["user_id"], message["lobby_id"])
+        elif message["type"] == "leave":
             await self.handle_leave(identity)
 
     async def handle_create(self, identity: bytes, user_id: int) -> None:

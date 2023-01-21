@@ -1,59 +1,61 @@
+"""Messages for communicating between processes and with the client."""
+
 from __future__ import annotations
 
 import json
-import re
-from dataclasses import asdict, dataclass
-from typing import TypedDict, TypeVar
-
-from bidict import bidict
-
-MESSAGE_NAMES: bidict[type[Message], str] = bidict()
+from typing import Literal, TypedDict
 
 
-class Message:
-    def to_bytes(self) -> bytes:
-        dictionary = asdict(self)
-        dictionary["type"] = MESSAGE_NAMES[type(self)]
-        return json.dumps(dictionary).encode()
-
-    @staticmethod
-    def from_bytes(data: bytes) -> Message:
-        parsed = json.loads(data)
-        cls = MESSAGE_NAMES.inverse[parsed.pop("type")]
-        return cls(**parsed)
+def to_bytes(message: Message) -> bytes:
+    """Convert a message to bytes."""
+    assert "type" in message
+    return json.dumps(message).encode()
 
 
-M = TypeVar("M", bound=type[Message])
-
-
-def message(cls: M) -> M:
-    MESSAGE_NAMES[cls] = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).lower()
-    return cls
+def from_bytes(data: bytes) -> dict | None:
+    """Parse and validate a message."""
+    try:
+        event = json.loads(data.decode())
+    except ValueError:
+        return None
+    if not isinstance(event, dict):
+        return None
+    if "type" not in event:
+        return None
+    return event
 
 
 # Frontend -> Backend
 
 
-@message
-@dataclass
-class Create(Message):
+class Create(TypedDict):
+    type: Literal["create"]
     user_id: int
 
 
-@message
-@dataclass
-class Join(Message):
+def create(user_id: int) -> Create:
+    return {"type": "create", "user_id": user_id}
+
+
+class Join(TypedDict):
+    type: Literal["join"]
     user_id: int
     lobby_id: int
 
 
-@message
-@dataclass
-class Leave(Message):
-    pass
+def join(user_id: int, lobby_id: int) -> Join:
+    return {"type": "join", "user_id": user_id, "lobby_id": lobby_id}
 
 
-# Backend -> Frontend
+class Leave(TypedDict):
+    type: Literal["leave"]
+
+
+def leave() -> Leave:
+    return {"type": "leave"}
+
+
+# Backend -> Client
 
 
 class Score(TypedDict):
@@ -73,6 +75,7 @@ class Level(TypedDict):
 
 
 class State(TypedDict):
+    type: Literal["state"]
     lobby_id: int
     level: Level | None
     deadline: str | None
@@ -80,3 +83,6 @@ class State(TypedDict):
     next_round: str | None
     users: dict[int, str]
     scores: list[Score]
+
+
+Message = Create | Join | Leave | State
