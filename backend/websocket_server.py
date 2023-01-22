@@ -32,19 +32,19 @@ class WebsocketHandler:
             logger.warning("Could not parse path: %s\n%s", self.websocket.path, error)
             return
 
-        user_id: str | None = params.get("user", [None])[0]
-        lobby_id: str | None = params.get("lobby", [None])[0]
-
-        if user_id is None:
-            return
+        lobby_id: int | None
+        try:
+            lobby_id = int(params["lobby"][0])
+        except (ValueError, KeyError, IndexError):
+            lobby_id = None
 
         if lobby_id is None:
-            logger.info("Sending Create(%s)", user_id)
-            await self.backend.send(messages.dump_bytes(messages.create(int(user_id))))
+            logger.info("Sending Create()")
+            await self.backend.send(messages.dump_bytes({"type": "create"}))
         else:
-            logger.info("Sending Join(%s, %s)", user_id, lobby_id)
+            logger.info("Sending Join(%s)", lobby_id)
             await self.backend.send(
-                messages.dump_bytes(messages.join(int(user_id), int(lobby_id)))
+                messages.dump_bytes({"type": "join", "lobby_id": lobby_id})
             )
 
         try:
@@ -75,9 +75,9 @@ class WebsocketHandler:
             pass
         finally:
             logger.info("Sending Leave()")
-            self.backend.send(messages.dump_bytes(messages.leave()))
+            self.backend.send(messages.dump_bytes({"type": "leave"}))
 
-    async def handle_websocket_event(self, data: bytes) -> None:
+    async def handle_websocket_event(self, data: bytes | str) -> None:
         message = messages.load(data)
         if message is None:
             logger.warning("Recieved invalid websocket event: %s", data)
@@ -85,7 +85,9 @@ class WebsocketHandler:
 
         logger.debug("Recieved websocket event: %s", message)
         if message["type"] == "ping":
-            await self.websocket.send(messages.dump_str(messages.pong()))
+            await self.websocket.send(messages.dump_str({"type": "pong"}))
+        else:
+            await self.backend.send(messages.dump_bytes(message))
 
     async def handle_backend_event(self, data: bytes) -> None:
         message = messages.load(data)

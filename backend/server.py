@@ -150,9 +150,33 @@ async def random_level(
 class User:
     id: int
     name: str
-    lobby: Lobby
+
+    @staticmethod
+    async def create(id: int) -> User | None:
+        name = await User._fetch_name(id)
+        if not name:
+            return None
+        return User(id, name)
+
+    @staticmethod
+    async def _fetch_name(id: int) -> str | None:
+        if not (1 <= id <= 1_000_000):
+            return None
+        url = f"https://df.hitboxteam.com/backend6/userSearch.php?userid={id}"
+        async with ClientSession() as session:
+            async with session.get(url) as response:
+                result = await response.json()
+                if len(result) != 1 or "name" not in result[0]:
+                    return None
+                return result[0]["name"]
+
+
+@dataclass
+class Client:
     socket: zmq.asyncio.Socket
     identity: bytes
+    user: User | None
+    lobby: Lobby
 
     async def send(self, message: bytes) -> None:
         await self.socket.send_multipart([self.identity, message])
@@ -166,7 +190,7 @@ class BaseLobby(ABC):
         self.closing: asyncio.Task | None = None
         self.on_close = asyncio.Event()
 
-        self.users: dict[int, User] = {}
+        self.clients: dict[bytes, Client] = {}
         self.scores: dict[int, Score] = {}
         self.level: Level | None = None
         self.deadline: datetime | None = None
@@ -181,15 +205,23 @@ class BaseLobby(ABC):
     def _state(self) -> messages.State:
         ...
 
-    async def _send_state(self) -> None:
+    @property
+    def users(self) -> dict[int, User]:
+        return {
+            client.user.id: client.user
+            for client in self.clients.values()
+            if client.user is not None
+        }
+
+    async def send_state(self) -> None:
         """Send the current state to all connected users."""
         message = json.dumps(self._state()).encode()
-        for user in self.users.values():
-            await user.send(message)
+        for client in self.clients.values():
+            await client.send(message)
 
     def _check_empty(self) -> None:
-        """If no users remain, schedule the lobby to be closed."""
-        if self.users:
+        """If no clients remain, schedule the lobby to be closed."""
+        if self.clients:
             return
 
         async def close():
@@ -209,25 +241,22 @@ class BaseLobby(ABC):
         for future in pending:
             future.cancel()
 
-    async def on_join(self, user: User) -> None:
-        """Handle a user joining."""
-        self.users[user.id] = user
+    async def on_join(self, client: Client) -> None:
+        """Handle a new client joining."""
+        self.clients[client.identity] = client
         if self.closing:
             self.closing.cancel()
             self.closing = None
-        await self._send_state()
+        await self.send_state()
 
-    async def on_leave(self, user: User) -> None:
-        """Handle a user leaving."""
-        self.users.pop(user.id)
+    async def on_leave(self, client: Client) -> None:
+        """Handle a client leaving."""
+        self.clients.pop(client.identity)
         self._check_empty()
-        await self._send_state()
+        await self.send_state()
 
     async def on_dustkid_event(self, event: Event) -> None:
         """Update scores and send state if this is a new best."""
-        if event.user not in self.users:
-            return
-
         if self.level is None or event.level != self.level.filename:
             return
 
@@ -240,15 +269,9 @@ class BaseLobby(ABC):
         old_score = self.scores.get(event.user)
         new_score = Score.from_dustkid_event(event)
         if old_score is None or old_score < new_score:
-            logger.info(
-                "Lobby(%s) User %s (%s) PB'd: %s",
-                self.id,
-                event.user,
-                self.users[event.user].name,
-                new_score,
-            )
+            logger.info("Lobby(%s) User %s PB'd: %s", self.id, event.user, new_score)
             self.scores[event.user] = new_score
-            await self._send_state()
+            await self.send_state()
 
 
 class Lobby(BaseLobby):
@@ -275,7 +298,7 @@ class Lobby(BaseLobby):
                 sorted(self.scores, key=lambda k: self.scores[k], reverse=True)[0]
             ].name
             logger.info("Lobby(%s) %s wins!", self.id, self.winner)
-        await self._send_state()
+        await self.send_state()
 
         # Find a new level during the break
         new_level_task = asyncio.create_task(random_level(max_level_id=11_000))
@@ -291,7 +314,7 @@ class Lobby(BaseLobby):
         self.level = new_level
         self.deadline = datetime.now(timezone.utc) + ROUND_TIME
         self.next_round = None
-        await self._send_state()
+        await self.send_state()
 
     def _state(self) -> messages.State:
         scores: list[messages.Score] = [
@@ -305,6 +328,7 @@ class Lobby(BaseLobby):
             for user_id, score in sorted(
                 self.scores.items(), key=itemgetter(1), reverse=True
             )
+            if user_id in self.users
         ]
         scores.extend(
             [
@@ -385,25 +409,13 @@ class Score:
         return self._key <= other._key
 
 
-async def lookup_user(user_id: int) -> str | None:
-    if not (1 <= user_id <= 1_000_000):
-        return None
-    url = f"https://df.hitboxteam.com/backend6/userSearch.php?userid={user_id}"
-    async with ClientSession() as session:
-        async with session.get(url) as response:
-            result = await response.json()
-            if len(result) != 1 or "name" not in result[0]:
-                return None
-            return result[0]["name"]
-
-
 class Manager:
     def __init__(self, context: zmq.asyncio.Context) -> None:
         self.clients_socket = context.socket(zmq.ROUTER)
         self.events_socket = context.socket(zmq.SUB)
 
-        # Socket identity -> User
-        self.users: dict[bytes, User] = {}
+        # Socket identity -> Client
+        self.clients: dict[bytes, Client] = {}
 
         # Lobby id -> Lobby
         self.lobbies: dict[int, Lobby] = {}
@@ -441,13 +453,32 @@ class Manager:
             "Handling frontend message: identity=%s message=%s", identity, message
         )
         if message["type"] == "create":
-            await self.handle_create(identity, message["user_id"])
+            await self.handle_create(identity)
         elif message["type"] == "join":
-            await self.handle_join(identity, message["user_id"], message["lobby_id"])
+            await self.handle_join(identity, message["lobby_id"])
         elif message["type"] == "leave":
             await self.handle_leave(identity)
+        elif message["type"] == "login":
+            await self.handle_login(identity, message["user_id"])
+        elif message["type"] == "logout":
+            await self.handle_logout(identity)
+        else:
+            logger.warning("Received unknown message type: %s", message)
 
-    async def handle_create(self, identity: bytes, user_id: int) -> None:
+    def create_lobby(self, lobby_id: int) -> None:
+        lobby = Lobby(id=lobby_id)
+        self.lobbies[lobby_id] = lobby
+
+        async def run_lobby():
+            """Run the new lobby, deleting it when it closes."""
+            try:
+                await lobby.run()
+            finally:
+                del self.lobbies[lobby_id]
+
+        asyncio.create_task(run_lobby())
+
+    async def handle_create(self, identity: bytes) -> None:
         if len(self.lobbies) >= MAX_LOBBY_COUNT:
             logger.warning(
                 "Ignoring lobby create because there are %s existing lobbies",
@@ -457,57 +488,68 @@ class Manager:
 
         lobby_id = self.next_id
         self.next_id += 1
+        self.create_lobby(lobby_id)
 
-        lobby = Lobby(id=lobby_id)
+        await self.handle_join(identity, lobby_id)
 
-        async def run_lobby():
-            """Run a new lobby, deleting it when it closes."""
-            self.lobbies[lobby_id] = lobby
-            try:
-                await lobby.run()
-            finally:
-                del self.lobbies[lobby_id]
-
-        asyncio.create_task(run_lobby())
-        await self.handle_join(identity, user_id, lobby_id)
-
-    async def handle_join(self, identity: bytes, user_id: int, lobby_id: int) -> None:
-        if lobby_id not in self.lobbies:
-            # TODO: Send back BadRequest
+    async def handle_join(self, identity: bytes, lobby_id: int) -> None:
+        if identity in self.clients:
+            logger.warning(
+                "Duplicate client join: identity=%s lobby_id=%s", identity, lobby_id
+            )
             return
+
+        if lobby_id not in self.lobbies:
+            # TODO: Implement creating lobbies, then send back BadRequest
+            self.create_lobby(lobby_id)
+
         lobby = self.lobbies[lobby_id]
 
-        user_name = await lookup_user(user_id)
-        if user_name is None:
-            # TODO: Send back BadRequest
-            return
-
-        user = User(
-            id=user_id,
-            name=user_name,
-            lobby=lobby,
+        client = Client(
             socket=self.clients_socket,
             identity=identity,
+            user=None,
+            lobby=lobby,
         )
+        self.clients[identity] = client
 
-        if not await lobby.on_join(user):
+        await lobby.on_join(client)
+
+    async def handle_leave(self, identity: bytes) -> None:
+        if identity not in self.clients:
+            logger.warning("Unknown client left: identity=%s", identity)
+            return
+
+        client = self.clients.pop(identity)
+        lobby = client.lobby
+
+        await lobby.on_leave(client)
+
+    async def handle_login(self, identity: bytes, user_id: int) -> None:
+        if identity not in self.clients:
+            logger.warning(
+                "Unknown client logged in: identity=%s user_id=%s", identity, user_id
+            )
+            return
+
+        client = self.clients[identity]
+
+        user = await User.create(user_id)
+        if user is None:
             # TODO: Send back BadRequest
             return
 
-        self.users[identity] = user
+        client.user = user
+        await client.lobby.send_state()
 
-    async def handle_leave(self, identity: bytes) -> None:
-        if identity not in self.users:
-            logger.warning("Unknown user left: identity=%s", identity)
+    async def handle_logout(self, identity: bytes) -> None:
+        if identity not in self.clients:
+            logger.warning("Unknown client logged out: identity=%s", identity)
             return
 
-        user = self.users.pop(identity)
-        lobby = user.lobby
-
-        await lobby.on_leave(user)
-        if lobby.is_empty():
-            logger.info("Deleting empty lobby: id=%s", lobby.id)
-            del self.lobbies[lobby.id]
+        client = self.clients[identity]
+        client.user = None
+        await client.lobby.send_state()
 
     async def handle_dustkid_event(self, event: Event) -> None:
         logger.debug("Received dustkid event: %s", event)

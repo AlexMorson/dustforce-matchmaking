@@ -10,9 +10,11 @@ def dump_str(message: Message) -> str:
     """Convert a message to a string."""
     return json.dumps(message)
 
+
 def dump_bytes(message: Message) -> bytes:
     """Convert a message to bytes."""
-    return json.dumps(message).encode()
+    return dump_str(message).encode()
+
 
 def load(data: bytes | str) -> Message | None:
     """Parse and validate a message from bytes or a string."""
@@ -28,34 +30,32 @@ def load(data: bytes | str) -> Message | None:
     return cast(Message, event)
 
 
+# Client -> Frontend -> Backend
+
+
+class Login(TypedDict):
+    type: Literal["login"]
+    user_id: int
+
+
+class Logout(TypedDict):
+    type: Literal["logout"]
+
+
 # Frontend -> Backend
 
 
 class Create(TypedDict):
     type: Literal["create"]
-    user_id: int
-
-
-def create(user_id: int) -> Create:
-    return {"type": "create", "user_id": user_id}
 
 
 class Join(TypedDict):
     type: Literal["join"]
-    user_id: int
     lobby_id: int
-
-
-def join(user_id: int, lobby_id: int) -> Join:
-    return {"type": "join", "user_id": user_id, "lobby_id": lobby_id}
 
 
 class Leave(TypedDict):
     type: Literal["leave"]
-
-
-def leave() -> Leave:
-    return {"type": "leave"}
 
 
 # Frontend <-> Client
@@ -65,19 +65,11 @@ class Ping(TypedDict):
     type: Literal["ping"]
 
 
-def ping() -> Ping:
-    return {"type": "ping"}
-
-
 class Pong(TypedDict):
     type: Literal["pong"]
 
 
-def pong() -> Pong:
-    return {"type": "pong"}
-
-
-# Backend -> Client
+# Backend -> Frontend -> Client
 
 
 class Score(TypedDict):

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Flipped, Flipper } from "react-flip-toolkit";
 
 import "./App.css";
@@ -76,6 +76,10 @@ class ReconnectingWebSocket {
     this.connect();
   }
 
+  send(data) {
+    this.ws.send(data);
+  }
+
   connect() {
     if (this.closed) return;
 
@@ -84,7 +88,7 @@ class ReconnectingWebSocket {
       this.heartbeat();
       this.onmessage(event);
     };
-    this.ws.onopen = event => {
+    this.ws.onopen = (event) => {
       this.attempts = 0;
       this.heartbeat();
     };
@@ -99,7 +103,10 @@ class ReconnectingWebSocket {
     clearTimeout(this.pongTimer);
     this.ws.close();
     ++this.attempts;
-    setTimeout(() => this.connect(), 1000 * Math.min(30, Math.pow(2, this.attempts - 1)));
+    setTimeout(
+      () => this.connect(),
+      1000 * Math.min(30, Math.pow(2, this.attempts - 1))
+    );
   }
 
   heartbeat() {
@@ -123,24 +130,29 @@ class ReconnectingWebSocket {
   }
 }
 
+function useSocket() {
+  const [socket, setSocket] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const lobby = params.get("lobby");
+
+    const url = new URL("/", window.location.href);
+    url.protocol = url.protocol.replace("http", "ws");
+    if (lobby) url.searchParams.set("lobby", lobby);
+
+    return new ReconnectingWebSocket(url);
+  });
+  useEffect(() => () => socket.close(), []);
+  return socket;
+}
+
 function App() {
   const [state, setState] = useState({});
-  const [socket, setSocket] = useState(null);
   const [user, setUser] = useState("");
+  const socket = useSocket();
   const time = useTime();
+  const [joined, setJoined] = useState(false);
 
-  const params = new URLSearchParams(window.location.search);
-  const lobby = state.lobby ?? params.get("lobby");
-
-  const eventsUrl = new URL("/", window.location.href);
-  eventsUrl.protocol = eventsUrl.protocol.replace("http", "ws");
-  if (user) eventsUrl.searchParams.set("user", user);
-  if (lobby) eventsUrl.searchParams.set("lobby", lobby);
-
-  // Ensure that reconnections use the correct lobby id
-  if (socket) socket.url = eventsUrl;
-
-  const onMessage = (event) => {
+  socket.onmessage = (event) => {
     let data;
     try {
       data = JSON.parse(event.data);
@@ -156,9 +168,9 @@ function App() {
 
     const { type, ...args } = data;
 
-    if (type == "pong") {
+    if (type === "pong") {
       console.debug("Got pong");
-    } else if (type == "state") {
+    } else if (type === "state") {
       console.debug("Received new state", args);
       setState(args);
     } else {
@@ -166,24 +178,15 @@ function App() {
     }
   };
 
-  const connect = () => {
-    if (!user) return;
-
-    const newSocket = new ReconnectingWebSocket(eventsUrl);
-    setSocket(newSocket);
-    newSocket.onmessage = onMessage;
-    newSocket.onclose = () => {
-      setSocket(null);
-      setState({});
-    };
+  const onJoin = () => {
+    if (!user || !/^[1-9][0-9]{0,5}$/.test(user)) return;
+    socket.send(JSON.stringify({ type: "login", user_id: parseInt(user) }));
+    setJoined(true);
   };
 
-  const onJoin = () => connect();
-
   const onLeave = () => {
-    if (socket) socket.close();
-    setSocket(null);
-    setState({});
+    socket.send(JSON.stringify({ type: "logout" }));
+    setJoined(false);
   };
 
   const lobbyUrl = new URL(window.location.href);
@@ -199,7 +202,7 @@ function App() {
           onInput={(e) => setUser(e.target.value)}
         />
       </label>
-      {socket ? (
+      {joined ? (
         <button onClick={onLeave}>Leave</button>
       ) : (
         <button onClick={onJoin}>Join</button>
