@@ -5,6 +5,7 @@ import json
 import logging
 import random
 import re
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from operator import itemgetter
@@ -157,22 +158,105 @@ class User:
         await self.socket.send_multipart([self.identity, message])
 
 
-class Lobby:
+class BaseLobby(ABC):
     def __init__(self, id: int):
         logger.info("Lobby(%s) created", id)
         self.id = id
+
+        self.closing: asyncio.Task | None = None
+        self.on_close = asyncio.Event()
+
         self.users: dict[int, User] = {}
         self.scores: dict[int, Score] = {}
-
-        self.deadline: datetime | None = None
-        self.next_round: datetime | None = None
         self.level: Level | None = None
+        self.deadline: datetime | None = None
+
+        self._check_empty()
+
+    @abstractmethod
+    async def _run(self) -> None:
+        ...
+
+    @abstractmethod
+    def _state(self) -> messages.State:
+        ...
+
+    async def _send_state(self) -> None:
+        """Send the current state to all connected users."""
+        message = json.dumps(self._state()).encode()
+        for user in self.users.values():
+            await user.send(message)
+
+    def _check_empty(self) -> None:
+        """If no users remain, schedule the lobby to be closed."""
+        if self.users:
+            return
+
+        async def close():
+            await asyncio.sleep(30)
+            self.on_close.set()
+
+        self.closing = asyncio.create_task(close())
+
+    async def run(self) -> None:
+        """Run the lobby, returning when the lobby should be closed."""
+        actual_run = asyncio.create_task(self._run())
+        on_close = asyncio.create_task(self.on_close.wait())
+        _, pending = await asyncio.wait(
+            [actual_run, on_close],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for future in pending:
+            future.cancel()
+
+    async def on_join(self, user: User) -> None:
+        """Handle a user joining."""
+        self.users[user.id] = user
+        if self.closing:
+            self.closing.cancel()
+            self.closing = None
+        await self._send_state()
+
+    async def on_leave(self, user: User) -> None:
+        """Handle a user leaving."""
+        self.users.pop(user.id)
+        self._check_empty()
+        await self._send_state()
+
+    async def on_dustkid_event(self, event: Event) -> None:
+        """Update scores and send state if this is a new best."""
+        if event.user not in self.users:
+            return
+
+        if self.level is None or event.level != self.level.filename:
+            return
+
+        if (
+            self.deadline is None
+            or datetime.fromtimestamp(event.timestamp, timezone.utc) > self.deadline
+        ):
+            return
+
+        old_score = self.scores.get(event.user)
+        new_score = Score.from_dustkid_event(event)
+        if old_score is None or old_score < new_score:
+            logger.info(
+                "Lobby(%s) User %s (%s) PB'd: %s",
+                self.id,
+                event.user,
+                self.users[event.user].name,
+                new_score,
+            )
+            self.scores[event.user] = new_score
+            await self._send_state()
+
+
+class Lobby(BaseLobby):
+    def __init__(self, id: int):
+        super().__init__(id)
+
+        self.next_round: datetime | None = None
         self.winner: str | None = None
-
-        self.loop = asyncio.create_task(self._run())
-
-    def is_empty(self) -> bool:
-        return not self.users
 
     async def _run(self) -> None:
         # Start the first round immediately
@@ -263,62 +347,6 @@ class Lobby:
             state["next_round"] = self.next_round.isoformat()
 
         return state
-
-    async def _send_state(self) -> None:
-        message = json.dumps(self._state()).encode()
-        for user in self.users.values():
-            await user.send(message)
-
-    async def on_join(self, user: User) -> bool:
-        """Handle a new user joining."""
-        if user.id in self.users:
-            return False
-        logger.info("Lobby(%s) user %s (%s) joined", self.id, user.id, user.name)
-        self.users[user.id] = user
-        await self._send_state()
-        return True
-
-    async def on_leave(self, user_id: int) -> None:
-        """Handle a user leaving."""
-        logger.info("Lobby(%s) user %s left", self.id, user_id)
-        self.users.pop(user_id, None)
-        self.scores.pop(user_id, None)
-
-        if self.is_empty():
-            self.loop.cancel()
-            try:
-                await self.loop
-            except asyncio.CancelledError:
-                pass
-        else:
-            await self._send_state()
-
-    async def on_dustkid_event(self, event: Event) -> None:
-        """Update scores and send state if this is a new best."""
-        if event.user not in self.users:
-            return
-
-        if self.level is None or event.level != self.level.filename:
-            return
-
-        if (
-            self.deadline is None
-            or datetime.fromtimestamp(event.timestamp, timezone.utc) > self.deadline
-        ):
-            return
-
-        old_score = self.scores.get(event.user)
-        new_score = Score.from_dustkid_event(event)
-        if old_score is None or old_score < new_score:
-            logger.info(
-                "Lobby(%s) User %s (%s) PB'd: %s",
-                self.id,
-                event.user,
-                self.users[event.user].name,
-                new_score,
-            )
-            self.scores[event.user] = new_score
-            await self._send_state()
 
 
 @dataclass
@@ -431,8 +459,16 @@ class Manager:
         self.next_id += 1
 
         lobby = Lobby(id=lobby_id)
-        self.lobbies[lobby_id] = lobby
 
+        async def run_lobby():
+            """Run a new lobby, deleting it when it closes."""
+            self.lobbies[lobby_id] = lobby
+            try:
+                await lobby.run()
+            finally:
+                del self.lobbies[lobby_id]
+
+        asyncio.create_task(run_lobby())
         await self.handle_join(identity, user_id, lobby_id)
 
     async def handle_join(self, identity: bytes, user_id: int, lobby_id: int) -> None:
@@ -468,7 +504,7 @@ class Manager:
         user = self.users.pop(identity)
         lobby = user.lobby
 
-        await lobby.on_leave(user.id)
+        await lobby.on_leave(user)
         if lobby.is_empty():
             logger.info("Deleting empty lobby: id=%s", lobby.id)
             del self.lobbies[lobby.id]
