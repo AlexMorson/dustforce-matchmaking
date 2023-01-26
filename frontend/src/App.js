@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Flipped, Flipper } from "react-flip-toolkit";
 
+import Timer from "./Timer.js";
 import "./App.css";
 
 const EXAMPLE_STATE = {
@@ -12,52 +13,35 @@ const EXAMPLE_STATE = {
     atlas: "http://atlas.dustforce.com/5518/How-Do-I-Boost",
     dustkid: "http://dustkid.com/level/How-Do-I-Boost-5518",
   },
+  round_timer: {
+    start: new Date().getTime(),
+    end: new Date().getTime() + 5 * 60 * 1000,
+  },
   users: { 123: "hi", 789: "wow", 147: "longer" },
   scores: [
     {
-      user_id: 123,
-      user_name: "hi",
-      completion: 0,
-      finesse: 0,
-      time: 0,
-    },
-    {
       user_id: 789,
-      user_name: "wow",
+      user_name: "Youkaykayieasy",
       completion: 5,
       finesse: 1,
       time: 35821,
     },
     {
       user_id: 147,
-      user_name: "longer",
+      user_name: "AvengedRuler",
       completion: 3,
       finesse: 2,
       time: 8171,
     },
+    {
+      user_id: 123,
+      user_name: "Alexspeedy",
+      completion: 0,
+      finesse: 0,
+      time: 0,
+    },
   ],
 };
-
-function useTime() {
-  const [time, setTime] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTime(new Date());
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
-  return time;
-}
-
-function formatTime(ms) {
-  ms = Math.max(0, ms);
-  // const milliseconds = ms % 1000;
-  const seconds = Math.floor(ms / 1000) % 60;
-  const minutes = Math.floor(ms / 1000 / 60); // % 60;
-  // const hours = Math.floor(ms / 1000 / 60 / 60);
-
-  return minutes.toString() + ":" + seconds.toString().padStart(2, "0");
-}
 
 class ReconnectingWebSocket {
   constructor(url) {
@@ -131,7 +115,7 @@ class ReconnectingWebSocket {
 }
 
 function useSocket() {
-  const [socket, setSocket] = useState(() => {
+  const [socket] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const lobby = params.get("lobby");
 
@@ -141,7 +125,7 @@ function useSocket() {
 
     return new ReconnectingWebSocket(url);
   });
-  useEffect(() => () => socket.close(), []);
+  useEffect(() => () => socket.close(), [socket]);
   return socket;
 }
 
@@ -149,7 +133,6 @@ function App() {
   const [state, setState] = useState({});
   const [user, setUser] = useState("");
   const socket = useSocket();
-  const time = useTime();
   const [joined, setJoined] = useState(false);
 
   socket.onmessage = (event) => {
@@ -212,17 +195,7 @@ function App() {
           Share lobby: <a href={lobbyUrl.toString()}>{lobbyUrl.toString()}</a>
         </p>
       )}
-      {state.deadline && (
-        <p className={"timer"}>
-          Remaining time: {formatTime(new Date(state.deadline) - time)}
-        </p>
-      )}
       {state.winner && <p className={"winner"}>{state.winner} wins!</p>}
-      {state.next_round && (
-        <p className={"timer"}>
-          Next round in: {formatTime(new Date(state.next_round) - time)}
-        </p>
-      )}
       {state.level && (
         <>
           <p className={"links"}>
@@ -236,6 +209,20 @@ function App() {
             <span>{state.level.name}</span>
           </div>
         </>
+      )}
+      {state.round_timer && (
+        <Timer
+          start={new Date(state.round_timer.start)}
+          end={new Date(state.round_timer.end)}
+          text={"Remaining time:"}
+        />
+      )}
+      {state.break_timer && (
+        <Timer
+          start={new Date(state.break_timer.start)}
+          end={new Date(state.break_timer.end)}
+          text={"Next round in:"}
+        />
       )}
       {state.hasOwnProperty("scores") && (
         <Scores scores={state.scores}></Scores>

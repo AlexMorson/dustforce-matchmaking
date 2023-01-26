@@ -1,18 +1,17 @@
 :root {
-  --width: clamp(300px, 100vw, 600px);
-  --px: calc(var(--width) / 600);
+  --width: calc(clamp(300px, 100vw, 380px) - 20px);
+  --px: calc(var(--width) / 380);
   --unit: calc(0.01 * var(--width));
 }
 
 body {
   background-color: #8babf3;
-  margin: 0px;
+  margin: 10px;
 }
 
 .center {
   width: var(--width);
   margin: auto;
-  padding-top: calc(2 * var(--unit));
 }
 
 div.image {
@@ -20,7 +19,8 @@ div.image {
   display: inline-block;
   width: calc(380 * var(--px));
   height: calc(180 * var(--px));
-  padding: var(--unit);
+  border-radius: 5px;
+  overflow: hidden;
 }
 
 .image a {
@@ -40,36 +40,39 @@ div.image {
   left: calc(3 * var(--unit));
   bottom: calc(3 * var(--unit));
   padding: 0 var(--unit);
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: rgba(0, 0, 0, 0.4);
   font-family: Caracteres L1;
   color: white;
-  font-size: calc(5 * var(--unit));
+  font-size: calc(7 * var(--unit));
   overflow: visible;
   white-space: nowrap;
   pointer-events: none;
 }
 
-.timer, .winner, .user, .lobby, .links {
-  margin: 0;
-  padding: var(--unit);
+.winner, .user, .lobby, .links {
+  margin: 0 var(--unit) var(--unit) 0;
 }
 
 .scores {
-  width: calc(100% - 4 * var(--unit));
-  padding: calc(2 * var(--unit));
+  width: calc(100 * var(--unit));
+  margin-top: var(--unit);
 }
 
 .row {
   color: #fff;
   font-family: sans-serif;
   font-weight: bold;
-  font-size: calc(5 * var(--unit));
+  font-size: calc(6 * var(--unit));
   text-shadow: 0px 0px 2px #000, 2px 2px 2px #000;
+  margin: var(--unit) 0;
+  padding: var(--unit) calc(2 * var(--unit));
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 5px;
 }
 
 span.name {
   display: inline-block;
-  width: calc(40 * var(--unit));
+  width: calc(52 * var(--unit));
   padding-right: calc(2 * var(--unit));
 }
 

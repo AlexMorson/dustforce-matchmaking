@@ -24,8 +24,8 @@ logger = logging.getLogger("server")
 
 MAX_LOBBY_COUNT = 100
 
-ROUND_TIME = timedelta(minutes=10)
-BREAK_TIME = timedelta(seconds=30)
+ROUND_DURATION = timedelta(minutes=10)
+BREAK_DURATION = timedelta(seconds=30)
 
 
 async def get_level_filename(id: int) -> str | None:
@@ -193,7 +193,7 @@ class BaseLobby(ABC):
         self.clients: dict[bytes, Client] = {}
         self.scores: dict[int, Score] = {}
         self.level: Level | None = None
-        self.deadline: datetime | None = None
+        self.round_end: datetime | None = None
 
         self._check_empty()
 
@@ -261,8 +261,8 @@ class BaseLobby(ABC):
             return
 
         if (
-            self.deadline is None
-            or datetime.fromtimestamp(event.timestamp, timezone.utc) > self.deadline
+            self.round_end is None
+            or datetime.fromtimestamp(event.timestamp, timezone.utc) > self.round_end
         ):
             return
 
@@ -278,7 +278,7 @@ class Lobby(BaseLobby):
     def __init__(self, id: int):
         super().__init__(id)
 
-        self.next_round: datetime | None = None
+        self.break_end: datetime | None = None
         self.winner: str | None = None
 
     async def _run(self) -> None:
@@ -286,13 +286,13 @@ class Lobby(BaseLobby):
         await self._end_round(timedelta())
         while True:
             # Give a couple of seconds of leeway to account for network delays
-            await asyncio.sleep(ROUND_TIME.seconds + 2)
-            await self._end_round(BREAK_TIME)
+            await asyncio.sleep(ROUND_DURATION.seconds + 2)
+            await self._end_round(BREAK_DURATION)
 
     async def _end_round(self, break_time: timedelta) -> None:
         # Announce the winner
-        self.deadline = None
-        self.next_round = datetime.now(timezone.utc) + break_time
+        self.round_end = None
+        self.break_end = datetime.now(timezone.utc) + break_time
         if self.scores:
             self.winner = self.users[
                 sorted(self.scores, key=lambda k: self.scores[k], reverse=True)[0]
@@ -312,8 +312,8 @@ class Lobby(BaseLobby):
         self.winner = None
         self.scores = {}
         self.level = new_level
-        self.deadline = datetime.now(timezone.utc) + ROUND_TIME
-        self.next_round = None
+        self.round_end = datetime.now(timezone.utc) + ROUND_DURATION
+        self.break_end = None
         await self.send_state()
 
     def _state(self) -> messages.State:
@@ -348,9 +348,9 @@ class Lobby(BaseLobby):
             "type": "state",
             "lobby_id": self.id,
             "level": None,
-            "deadline": None,
-            "next_round": None,
+            "round_timer": None,
             "winner": self.winner,
+            "break_timer": None,
             "users": {user.id: user.name for user in self.users.values()},
             "scores": scores,
         }
@@ -364,11 +364,17 @@ class Lobby(BaseLobby):
                 "dustkid": self.level.dustkid,
             }
 
-        if self.deadline is not None:
-            state["deadline"] = self.deadline.isoformat()
+        if self.round_end is not None:
+            state["round_timer"] = {
+                "start": (self.round_end - ROUND_DURATION).isoformat(),
+                "end": self.round_end.isoformat(),
+            }
 
-        if self.next_round is not None:
-            state["next_round"] = self.next_round.isoformat()
+        if self.break_end is not None:
+            state["break_timer"] = {
+                "start": (self.break_end - BREAK_DURATION).isoformat(),
+                "end": self.break_end.isoformat(),
+            }
 
         return state
 

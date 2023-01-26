@@ -88,13 +88,18 @@ class Level(TypedDict):
     dustkid: str
 
 
+class Timer(TypedDict):
+    start: str
+    end: str
+
+
 class State(TypedDict):
     type: Literal["state"]
     lobby_id: int
     level: Level | None
-    deadline: str | None
+    round_timer: Timer | None
     winner: str | None
-    next_round: str | None
+    break_timer: Timer | None
     users: dict[int, str]
     scores: list[Score]
 
