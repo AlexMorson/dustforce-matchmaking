@@ -53,67 +53,6 @@ div.image {
   margin: 0 var(--unit) var(--unit) 0;
 }
 
-.scores {
-  width: calc(100 * var(--unit));
-  margin-top: var(--unit);
-}
-
-.row {
-  color: #fff;
-  font-family: sans-serif;
-  font-weight: bold;
-  font-size: calc(6 * var(--unit));
-  text-shadow: 0px 0px 2px #000, 2px 2px 2px #000;
-  margin: var(--unit) 0;
-  padding: var(--unit) calc(2 * var(--unit));
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 5px;
-}
-
-span.name {
-  display: inline-block;
-  width: calc(52 * var(--unit));
-  padding-right: calc(2 * var(--unit));
-}
-
-span.score {
-  display: inline-block;
-  width: calc(5 * var(--unit));
-  text-align: center;
-}
-
-span.time {
-  display: inline-block;
-  width: calc(30 * var(--unit));
-  padding-left: calc(2 * var(--unit));
-  text-align: right;
-}
-
-.score {
-  font-family: "Caracteres L1";
-  font-weight: 1000;
-}
-
-.gradeS {
-  color: #58a1e8;
-}
-
-.gradeA {
-  color: #fcd28c;
-}
-
-.gradeB {
-  color: #908f8b;
-}
-
-.gradeC {
-  color: #493832;
-}
-
-.gradeD {
-  color: #465068;
-}
-
 @font-face {
   font-family: "Caracteres L1";
   src: local("Caracteres L1"), url("Caracteres L1.ttf") format("truetype");
