@@ -1,22 +1,17 @@
-div.image {
+.image {
   position: relative;
-  display: inline-block;
-  width: calc(380 * var(--px));
-  height: calc(180 * var(--px));
+  aspect-ratio: 380 / 180;
   border-radius: 5px;
   overflow: hidden;
 }
 
-.image a {
-  position: absolute;
-}
-
 .image img {
-  position: relative;
-  width: calc(382 * var(--px));
-  height: calc(182 * var(--px));
-  left: calc(-1 * var(--px));
-  top: calc(-1 * var(--px));
+  position: absolute;
+  /* Crop away the 1 pixel border */
+  width: calc(100% * 382 / 380);
+  height: calc(100% * 182 / 180);
+  left: calc(-100% * 1 / 380);
+  top: calc(-100% * 1 / 180);
 }
 
 .image span {
@@ -24,10 +19,10 @@ div.image {
   left: calc(3 * var(--unit));
   bottom: calc(3 * var(--unit));
   padding: 0 var(--unit);
-  background-color: rgba(0, 0, 0, 0.4);
-  font-family: Caracteres L1;
   color: white;
+  background-color: rgba(0, 0, 0, 0.4);
   font-size: calc(7 * var(--unit));
+  font-family: "Caracteres L1";
   overflow: visible;
   white-space: nowrap;
   pointer-events: none;

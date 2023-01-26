@@ -26,7 +26,7 @@ function Scores({ scores }) {
     );
   }
   return (
-    <Flipper className={"scores"} flipKey={JSON.stringify(scores)}>
+    <Flipper flipKey={JSON.stringify(scores)}>
       {rows}
     </Flipper>
   );

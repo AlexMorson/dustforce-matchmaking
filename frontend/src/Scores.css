@@ -1,8 +1,3 @@
-.scores {
-  width: calc(100 * var(--unit));
-  margin-top: var(--unit);
-}
-
 .row {
   color: #fff;
   font-family: sans-serif;
@@ -15,28 +10,23 @@
   border-radius: 5px;
 }
 
-span.name {
+.name {
   display: inline-block;
-  width: calc(52 * var(--unit));
-  padding-right: calc(2 * var(--unit));
-}
-
-span.score {
-  display: inline-block;
-  width: calc(5 * var(--unit));
-  text-align: center;
-}
-
-span.time {
-  display: inline-block;
-  width: calc(30 * var(--unit));
-  padding-left: calc(2 * var(--unit));
-  text-align: right;
+  width: calc(58 * var(--unit));
 }
 
 .score {
+  display: inline-block;
+  width: calc(5 * var(--unit));
+  text-align: center;
   font-family: "Caracteres L1";
   font-weight: 1000;
+}
+
+.time {
+  display: inline-block;
+  width: calc(28 * var(--unit));
+  text-align: right;
 }
 
 .gradeS {
