@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 
+import Image from "./Image.js";
 import Scores from "./Scores.js";
 import Timer from "./Timer.js";
 
@@ -203,12 +204,7 @@ function App() {
             <a href={state.level.atlas}>Atlas</a>{" "}
             <a href={state.level.dustkid}>Leaderboards</a>
           </p>
-          <div className={"image"}>
-            <a href={state.level.play}>
-              <img alt={state.level.name} src={state.level.image} />
-            </a>
-            <span>{state.level.name}</span>
-          </div>
+          <Image level={state.level} />
         </>
       )}
       {state.round_timer && (

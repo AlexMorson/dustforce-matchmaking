@@ -14,41 +14,6 @@ body {
   margin: auto;
 }
 
-div.image {
-  position: relative;
-  display: inline-block;
-  width: calc(380 * var(--px));
-  height: calc(180 * var(--px));
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.image a {
-  position: absolute;
-}
-
-.image img {
-  position: relative;
-  width: calc(382 * var(--px));
-  height: calc(182 * var(--px));
-  left: calc(-1 * var(--px));
-  top: calc(-1 * var(--px));
-}
-
-.image span {
-  position: absolute;
-  left: calc(3 * var(--unit));
-  bottom: calc(3 * var(--unit));
-  padding: 0 var(--unit);
-  background-color: rgba(0, 0, 0, 0.4);
-  font-family: Caracteres L1;
-  color: white;
-  font-size: calc(7 * var(--unit));
-  overflow: visible;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 .winner, .user, .lobby, .links {
   margin: 0 var(--unit) var(--unit) 0;
 }
