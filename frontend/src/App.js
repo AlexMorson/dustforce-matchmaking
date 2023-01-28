@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 
-import Image from "./Image.js";
-import Scores from "./Scores.js";
-import Timer from "./Timer.js";
+import Lobby from "./lobby/Lobby.js";
 
 import "./App.css";
 
@@ -199,34 +197,14 @@ function App() {
       )}
       {state.winner && <p className={"winner"}>{state.winner} wins!</p>}
       {state.level && (
-        <>
-          <p className={"links"}>
-            <a href={state.level.atlas}>Atlas</a>{" "}
-            <a href={state.level.dustkid}>Leaderboards</a>
-          </p>
-          <Image level={state.level} />
-        </>
+        <p className={"links"}>
+          <a href={state.level.atlas}>Atlas</a>{" "}
+          <a href={state.level.dustkid}>Leaderboards</a>
+        </p>
       )}
-      {state.round_timer && (
-        <Timer
-          start={new Date(state.round_timer.start)}
-          end={new Date(state.round_timer.end)}
-          text={"Remaining time:"}
-        />
-      )}
-      {state.break_timer && (
-        <Timer
-          start={new Date(state.break_timer.start)}
-          end={new Date(state.break_timer.end)}
-          text={"Next round in:"}
-        />
-      )}
-      {state.hasOwnProperty("scores") && (
-        <Scores scores={state.scores}></Scores>
-      )}
+      <Lobby state={state} />
     </div>
   );
 }
-
 
 export default App;
