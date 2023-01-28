@@ -135,6 +135,17 @@ function App() {
   const socket = useSocket();
   const [joined, setJoined] = useState(false);
 
+  // Subtract the scrollbar from the view width
+  useEffect(() => {
+    const updateWidth = () => {
+      const vw = document.documentElement.clientWidth / 100;
+      document.querySelector(":root").style.setProperty("--vw", `${vw}px`);
+    };
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  });
+
   socket.onmessage = (event) => {
     let data;
     try {

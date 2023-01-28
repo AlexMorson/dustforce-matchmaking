@@ -1,5 +1,6 @@
 :root {
-  --width: calc(clamp(300px, 100vw, 600px) - 20px);
+  --vw: 1vw;
+  --width: calc(clamp(300px, 100 * var(--vw), 600px) - 20px);
   --px: calc(var(--width) / 600);
   --unit: calc(0.01 * var(--width));
 }
