@@ -275,6 +275,42 @@ class BaseLobby(ABC):
 
 
 class Lobby(BaseLobby):
+
+    # Lobby id -> Lobby
+    lobbies: dict[int, Lobby] = {}
+    next_id: int = 0
+
+    @staticmethod
+    def create(id: int | None = None) -> Lobby | None:
+        if len(Lobby.lobbies) >= MAX_LOBBY_COUNT:
+            logger.warning(
+                "Ignoring lobby create because there are %s existing lobbies",
+                len(Lobby.lobbies),
+            )
+            return
+
+        if id in Lobby.lobbies:
+            logger.warning("Ignoring lobby create because lobby %s already exists", id)
+            return None
+
+        while id is None or id in Lobby.lobbies:
+            id = Lobby.next_id
+            Lobby.next_id += 1
+
+        lobby = Lobby(id=id)
+        Lobby.lobbies[id] = lobby
+
+        async def run_lobby():
+            """Run the new lobby, deleting it when it closes."""
+            try:
+                await lobby.run()
+            finally:
+                del Lobby.lobbies[id]
+
+        asyncio.create_task(run_lobby())
+        return lobby
+
+
     def __init__(self, id: int):
         super().__init__(id)
 
@@ -423,10 +459,6 @@ class Manager:
         # Socket identity -> Client
         self.clients: dict[bytes, Client] = {}
 
-        # Lobby id -> Lobby
-        self.lobbies: dict[int, Lobby] = {}
-        self.next_id = 0
-
         self.max_level_id = 10_000
 
     async def run(self) -> None:
@@ -471,32 +503,13 @@ class Manager:
         else:
             logger.warning("Received unknown message type: %s", message)
 
-    def create_lobby(self, lobby_id: int) -> None:
-        lobby = Lobby(id=lobby_id)
-        self.lobbies[lobby_id] = lobby
-
-        async def run_lobby():
-            """Run the new lobby, deleting it when it closes."""
-            try:
-                await lobby.run()
-            finally:
-                del self.lobbies[lobby_id]
-
-        asyncio.create_task(run_lobby())
-
     async def handle_create(self, identity: bytes) -> None:
-        if len(self.lobbies) >= MAX_LOBBY_COUNT:
-            logger.warning(
-                "Ignoring lobby create because there are %s existing lobbies",
-                len(self.lobbies),
-            )
+        lobby = Lobby.create()
+        if lobby is None:
+            # TODO: Send back an error message
             return
 
-        lobby_id = self.next_id
-        self.next_id += 1
-        self.create_lobby(lobby_id)
-
-        await self.handle_join(identity, lobby_id)
+        await self.handle_join(identity, lobby.id)
 
     async def handle_join(self, identity: bytes, lobby_id: int) -> None:
         if identity in self.clients:
@@ -505,11 +518,13 @@ class Manager:
             )
             return
 
-        if lobby_id not in self.lobbies:
+        if lobby_id not in Lobby.lobbies:
             # TODO: Implement creating lobbies, then send back BadRequest
-            self.create_lobby(lobby_id)
-
-        lobby = self.lobbies[lobby_id]
+            lobby = Lobby.create(lobby_id)
+            if lobby is None:
+                return
+        else:
+            lobby = Lobby.lobbies[lobby_id]
 
         client = Client(
             socket=self.clients_socket,
@@ -565,7 +580,7 @@ class Manager:
             logger.info("Found more recently uploaded level: id=%s", level_id)
             self.max_level_id = level_id
 
-        for lobby in list(self.lobbies.values()):
+        for lobby in list(Lobby.lobbies.values()):
             await lobby.on_dustkid_event(event)
 
 
