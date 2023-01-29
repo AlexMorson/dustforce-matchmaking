@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import random
@@ -205,6 +206,11 @@ class BaseLobby(ABC):
     def _state(self) -> messages.State:
         ...
 
+    @abstractmethod
+    @staticmethod
+    def _scoring_key(score: Score) -> tuple:
+        """Return a key that will be used to rank this score."""
+
     @property
     def users(self) -> dict[int, User]:
         return {
@@ -268,7 +274,9 @@ class BaseLobby(ABC):
 
         old_score = self.scores.get(event.user)
         new_score = Score.from_dustkid_event(event)
-        if old_score is None or old_score < new_score:
+        if old_score is None or self._scoring_key(old_score) < self._scoring_key(
+            new_score
+        ):
             logger.info("Lobby(%s) User %s PB'd: %s", self.id, event.user, new_score)
             self.scores[event.user] = new_score
             await self.send_state()
@@ -310,12 +318,15 @@ class Lobby(BaseLobby):
         asyncio.create_task(run_lobby())
         return lobby
 
-
     def __init__(self, id: int):
         super().__init__(id)
 
         self.break_end: datetime | None = None
         self.winner: str | None = None
+
+    @staticmethod
+    def _scoring_key(score: Score) -> tuple:
+        return score.ss_key
 
     async def _run(self) -> None:
         # Start the first round immediately
@@ -331,7 +342,11 @@ class Lobby(BaseLobby):
         self.break_end = datetime.now(timezone.utc) + break_time
         if self.scores:
             self.winner = self.users[
-                sorted(self.scores, key=lambda k: self.scores[k], reverse=True)[0]
+                sorted(
+                    self.scores,
+                    key=lambda user_id: self._scoring_key(self.scores[user_id]),
+                    reverse=True,
+                )[0]
             ].name
             logger.info("Lobby(%s) %s wins!", self.id, self.winner)
         await self.send_state()
@@ -362,7 +377,9 @@ class Lobby(BaseLobby):
                 "time": score.time,
             }
             for user_id, score in sorted(
-                self.scores.items(), key=itemgetter(1), reverse=True
+                self.scores.items(),
+                key=lambda kv: self._scoring_key(kv[1]),
+                reverse=True,
             )
             if user_id in self.users
         ]
@@ -432,23 +449,8 @@ class Score:
         )
 
     @property
-    def _key(self) -> tuple[int, int, int]:
+    def ss_key(self) -> tuple[int, int, int]:
         return self.completion + self.finesse, -self.time, -self.timestamp
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Score):
-            return NotImplemented
-        return self._key == other._key
-
-    def __lt__(self, other: object) -> bool:
-        if not isinstance(other, Score):
-            return NotImplemented
-        return self._key < other._key
-
-    def __le__(self, other: object) -> bool:
-        if not isinstance(other, Score):
-            return NotImplemented
-        return self._key <= other._key
 
 
 class Manager:
