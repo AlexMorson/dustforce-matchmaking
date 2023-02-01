@@ -7,7 +7,7 @@ import websockets
 import zmq
 import zmq.asyncio
 from constants import CLIENTS_URL
-from websockets.exceptions import ConnectionClosedError
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,22 +37,19 @@ class WebsocketHandler:
         except (ValueError, KeyError, IndexError):
             return
 
-        logger.info("Sending Join(%s)", lobby_id)
+        logger.info("Sending Join(lobby_id=%s)", lobby_id)
         await self.backend.send(
             messages.dump_bytes({"type": "join", "lobby_id": lobby_id})
         )
 
         try:
-            wait_closed = asyncio.create_task(self.websocket.wait_closed())
             read_websocket = asyncio.create_task(self.websocket.recv())
             read_backend = self.backend.recv()
-            pending = {wait_closed, read_websocket, read_backend}
+            pending = {read_websocket, read_backend}
             while True:
                 done, pending = await asyncio.wait(
                     pending, return_when=asyncio.FIRST_COMPLETED
                 )
-                if wait_closed in done:
-                    break
 
                 if read_websocket in done:
                     await self.handle_websocket_event(await read_websocket)
@@ -63,11 +60,10 @@ class WebsocketHandler:
                     await self.handle_backend_event(await read_backend)  # type: ignore
                     read_backend = self.backend.recv()
                     pending.add(read_backend)
-
-            for future in pending:
-                future.cancel()
-        except ConnectionClosedError:
+        except ConnectionClosedOK:
             pass
+        except ConnectionClosedError as error:
+            logger.warning("Connection closed with an error: %s", error)
         finally:
             logger.info("Sending Leave()")
             self.backend.send(messages.dump_bytes({"type": "leave"}))
