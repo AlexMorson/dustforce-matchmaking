@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 import random
@@ -9,7 +8,6 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from operator import itemgetter
 
 import messages
 import pydantic
@@ -22,6 +20,9 @@ from dustkid_schema import Event, Leaderboard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server")
+
+# How long until an empty lobby is deleted
+EMPTY_LOBBY_TIMEOUT = timedelta(minutes=5)
 
 MAX_LOBBY_COUNT = 100
 
@@ -206,8 +207,8 @@ class BaseLobby(ABC):
     def _state(self) -> messages.State:
         ...
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def _scoring_key(score: Score) -> tuple:
         """Return a key that will be used to rank this score."""
 
@@ -231,7 +232,7 @@ class BaseLobby(ABC):
             return
 
         async def close():
-            await asyncio.sleep(30)
+            await asyncio.sleep(EMPTY_LOBBY_TIMEOUT.seconds)
             self.on_close.set()
 
         self.closing = asyncio.create_task(close())
@@ -492,8 +493,8 @@ class Manager:
         logger.debug(
             "Handling frontend message: identity=%s message=%s", identity, message
         )
-        if message["type"] == "create":
-            await self.handle_create(identity)
+        if message["type"] == "create_lobby":
+            await self.handle_create_lobby(identity)
         elif message["type"] == "join":
             await self.handle_join(identity, message["lobby_id"])
         elif message["type"] == "leave":
@@ -505,13 +506,18 @@ class Manager:
         else:
             logger.warning("Received unknown message type: %s", message)
 
-    async def handle_create(self, identity: bytes) -> None:
+    async def handle_create_lobby(self, identity: bytes) -> None:
         lobby = Lobby.create()
-        if lobby is None:
-            # TODO: Send back an error message
-            return
 
-        await self.handle_join(identity, lobby.id)
+        response: messages.Error | messages.CreatedLobby
+        if lobby is None:
+            response = {"type": "error"}
+        else:
+            response = {"type": "created_lobby", "lobby_id": lobby.id}
+
+        await self.clients_socket.send_multipart(
+            [identity, messages.dump_bytes(response)]
+        )
 
     async def handle_join(self, identity: bytes, lobby_id: int) -> None:
         if identity in self.clients:

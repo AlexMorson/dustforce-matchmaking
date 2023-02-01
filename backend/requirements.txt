@@ -1,4 +1,6 @@
 aiohttp
+hypercorn
 pydantic
+quart
 websockets
 zmq

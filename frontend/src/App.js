@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Routes, Route, useParams } from "react-router-dom";
 
 import Lobby from "./lobby/Lobby.js";
 
@@ -114,14 +115,11 @@ class ReconnectingWebSocket {
   }
 }
 
-function useSocket() {
+function useSocket(lobby_id) {
   const [socket] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const lobby = params.get("lobby");
-
-    const url = new URL("/", window.location.href);
+    const url = new URL("/events", window.location.href);
     url.protocol = url.protocol.replace("http", "ws");
-    if (lobby) url.searchParams.set("lobby", lobby);
+    url.searchParams.set("lobby", lobby_id);
 
     return new ReconnectingWebSocket(url);
   });
@@ -130,9 +128,19 @@ function useSocket() {
 }
 
 function App() {
+  return (
+    <Routes>
+      <Route path="/lobby/:lobby_id" element={<Matchmaking />} />
+    </Routes>
+  );
+}
+
+function Matchmaking() {
+  const { lobby_id } = useParams();
+  const socket = useSocket(lobby_id);
+
   const [state, setState] = useState({});
   const [user, setUser] = useState("");
-  const socket = useSocket();
   const [joined, setJoined] = useState(false);
 
   // Subtract the scrollbar from the view width
@@ -183,8 +191,8 @@ function App() {
     setJoined(false);
   };
 
-  const lobbyUrl = new URL(window.location.href);
-  lobbyUrl.searchParams.set("lobby", state.lobby_id);
+  // Ignore query params
+  const lobbyUrl = window.location.origin + window.location.pathname;
 
   return (
     <div className={"center"}>
@@ -203,7 +211,7 @@ function App() {
       )}
       {state.lobby_id !== undefined && (
         <p className={"lobby"}>
-          Share lobby: <a href={lobbyUrl.toString()}>{lobbyUrl.toString()}</a>
+          Share lobby: <a href={lobbyUrl}>{lobbyUrl}</a>
         </p>
       )}
       {state.winner && <p className={"winner"}>{state.winner} wins!</p>}

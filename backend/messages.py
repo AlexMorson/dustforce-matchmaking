@@ -45,8 +45,17 @@ class Logout(TypedDict):
 # Frontend -> Backend
 
 
-class Create(TypedDict):
-    type: Literal["create"]
+class CreateLobby(TypedDict):
+    type: Literal["create_lobby"]
+
+
+class CreatedLobby(TypedDict):
+    type: Literal["created_lobby"]
+    lobby_id: int
+
+
+class Error(TypedDict):
+    type: Literal["error"]
 
 
 class Join(TypedDict):
@@ -104,4 +113,4 @@ class State(TypedDict):
     scores: list[Score]
 
 
-Message = Create | Join | Leave | State | Ping | Pong
+Message = CreateLobby | CreatedLobby | Error | Join | Leave | State | Ping | Pong

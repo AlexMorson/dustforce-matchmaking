@@ -32,20 +32,15 @@ class WebsocketHandler:
             logger.warning("Could not parse path: %s\n%s", self.websocket.path, error)
             return
 
-        lobby_id: int | None
         try:
             lobby_id = int(params["lobby"][0])
         except (ValueError, KeyError, IndexError):
-            lobby_id = None
+            return
 
-        if lobby_id is None:
-            logger.info("Sending Create()")
-            await self.backend.send(messages.dump_bytes({"type": "create"}))
-        else:
-            logger.info("Sending Join(%s)", lobby_id)
-            await self.backend.send(
-                messages.dump_bytes({"type": "join", "lobby_id": lobby_id})
-            )
+        logger.info("Sending Join(%s)", lobby_id)
+        await self.backend.send(
+            messages.dump_bytes({"type": "join", "lobby_id": lobby_id})
+        )
 
         try:
             wait_closed = asyncio.create_task(self.websocket.wait_closed())
@@ -100,7 +95,7 @@ class WebsocketHandler:
 
 
 async def main() -> None:
-    async with websockets.serve(WebsocketHandler.create, host="0.0.0.0", port=80):  # type: ignore
+    async with websockets.serve(WebsocketHandler.create, host="0.0.0.0", port=8000):  # type: ignore
         await asyncio.Future()
 
 

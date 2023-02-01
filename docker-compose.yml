@@ -12,10 +12,6 @@ services:
   frontend:
     build:
       context: "./frontend"
-    ports:
-      - "8001:80"
   backend:
     build:
       context: "./backend"
-    ports:
-      - "8002:80"
