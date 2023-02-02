@@ -130,8 +130,17 @@ function useSocket(lobby_id) {
 function App() {
   return (
     <Routes>
+      <Route path="/" element={<CreateLobby />} />
       <Route path="/lobby/:lobby_id" element={<Matchmaking />} />
     </Routes>
+  );
+}
+
+function CreateLobby() {
+  return (
+    <form method="POST" action="api/create_lobby">
+      <button>Create!</button>
+    </form>
   );
 }
 

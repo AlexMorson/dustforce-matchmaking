@@ -7,7 +7,7 @@ from quart import Quart, redirect
 app = Quart(__name__)
 
 
-@app.route("/api/create_lobby")
+@app.route("/api/create_lobby", methods=["POST"])
 async def create_lobby():
     context = zmq.asyncio.Context.instance()
     backend = context.socket(zmq.DEALER)

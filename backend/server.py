@@ -527,12 +527,10 @@ class Manager:
             return
 
         if lobby_id not in Lobby.lobbies:
-            # TODO: Implement creating lobbies, then send back BadRequest
-            lobby = Lobby.create(lobby_id)
-            if lobby is None:
-                return
-        else:
-            lobby = Lobby.lobbies[lobby_id]
+            # TODO: Send back BadRequest
+            return
+
+        lobby = Lobby.lobbies[lobby_id]
 
         client = Client(
             socket=self.clients_socket,
@@ -543,6 +541,7 @@ class Manager:
         self.clients[identity] = client
 
         await lobby.on_join(client)
+        # TODO: Send back success response
 
     async def handle_leave(self, identity: bytes) -> None:
         if identity not in self.clients:
