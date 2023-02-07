@@ -5,6 +5,7 @@ COPY ./package.json .
 RUN npm install
 
 COPY . .
+ARG PUBLIC_URL
 RUN npm run build
 
 # Serve the built static content with Nginx

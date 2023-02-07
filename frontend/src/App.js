@@ -117,7 +117,7 @@ class ReconnectingWebSocket {
 
 function useSocket(lobby_id) {
   const [socket] = useState(() => {
-    const url = new URL("/events", window.location.href);
+    const url = new URL("../events", window.location.href);
     url.protocol = url.protocol.replace("http", "ws");
     url.searchParams.set("lobby", lobby_id);
 

@@ -12,6 +12,8 @@ services:
   frontend:
     build:
       context: "./frontend"
+      args:
+        - "PUBLIC_URL"
   backend:
     build:
       context: "./backend"
