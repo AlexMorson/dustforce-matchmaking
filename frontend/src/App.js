@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Routes, Route, useParams } from "react-router-dom";
 
+import Admin from "./Admin.js";
 import Lobby from "./lobby/Lobby.js";
 
 import "./App.css";
@@ -152,6 +153,9 @@ function Matchmaking() {
   const [user, setUser] = useState("");
   const [joined, setJoined] = useState(false);
 
+  const urlParams = new URL(window.location.href).searchParams;
+  const adminPassword = urlParams.get("admin");
+
   // Subtract the scrollbar from the view width
   useEffect(() => {
     const updateWidth = () => {
@@ -205,6 +209,7 @@ function Matchmaking() {
 
   return (
     <div className={"center"}>
+      {adminPassword && <Admin lobby_id={lobby_id} password={adminPassword} />}
       <label className={"user"}>
         Dustkid id:{" "}
         <input
@@ -223,7 +228,6 @@ function Matchmaking() {
           Share lobby: <a href={lobbyUrl}>{lobbyUrl}</a>
         </p>
       )}
-      {state.winner && <p className={"winner"}>{state.winner} wins!</p>}
       {state.level && (
         <p className={"links"}>
           <a href={state.level.atlas}>Atlas</a>{" "}

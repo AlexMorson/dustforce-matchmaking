@@ -5,6 +5,7 @@ import json
 import logging
 import random
 import re
+import string
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -26,9 +27,6 @@ EMPTY_LOBBY_TIMEOUT = timedelta(minutes=5)
 
 MAX_LOBBY_COUNT = 100
 
-ROUND_DURATION = timedelta(minutes=10)
-BREAK_DURATION = timedelta(seconds=30)
-
 
 async def get_level_filename(id: int) -> str | None:
     url = f"https://atlas.dustforce.com/gi/downloader.php?id={id}"
@@ -47,6 +45,13 @@ async def get_level_filename(id: int) -> str | None:
 @dataclass
 class Level:
     filename: str
+
+    @staticmethod
+    async def from_id(level_id: int) -> Level | None:
+        filename = await get_level_filename(level_id)
+        if filename is None:
+            return None
+        return Level(filename)
 
     @property
     def id(self) -> int | None:
@@ -148,7 +153,7 @@ async def random_level(
         return level
 
 
-@dataclass
+@dataclass(frozen=True)
 class User:
     id: int
     name: str
@@ -183,6 +188,14 @@ class Client:
     async def send(self, message: bytes) -> None:
         await self.socket.send_multipart([self.identity, message])
 
+    async def login(self, user: User) -> None:
+        self.user = user
+        await self.lobby.on_login(self)
+
+    async def logout(self) -> None:
+        self.user = None
+        await self.lobby.on_logout(self)
+
 
 class BaseLobby(ABC):
     def __init__(self, id: int):
@@ -193,8 +206,6 @@ class BaseLobby(ABC):
         self.on_close = asyncio.Event()
 
         self.clients: dict[bytes, Client] = {}
-        self.scores: dict[int, Score] = {}
-        self.level: Level | None = None
         self.round_end: datetime | None = None
 
         self._check_empty()
@@ -207,24 +218,17 @@ class BaseLobby(ABC):
     def _state(self) -> messages.State:
         ...
 
-    @staticmethod
-    @abstractmethod
-    def _scoring_key(score: Score) -> tuple:
-        """Return a key that will be used to rank this score."""
-
-    @property
-    def users(self) -> dict[int, User]:
-        return {
-            client.user.id: client.user
-            for client in self.clients.values()
-            if client.user is not None
-        }
-
     async def send_state(self) -> None:
-        """Send the current state to all connected users."""
+        """Send the current state to all connected clients."""
+        if not self.clients:
+            return
         message = json.dumps(self._state()).encode()
-        for client in self.clients.values():
-            await client.send(message)
+        await asyncio.wait(
+            [
+                asyncio.create_task(client.send(message))
+                for client in self.clients.values()
+            ]
+        )
 
     def _check_empty(self) -> None:
         """If no clients remain, schedule the lobby to be closed."""
@@ -261,26 +265,6 @@ class BaseLobby(ABC):
         self.clients.pop(client.identity)
         self._check_empty()
         await self.send_state()
-
-    async def on_dustkid_event(self, event: Event) -> None:
-        """Update scores and send state if this is a new best."""
-        if self.level is None or event.level != self.level.filename:
-            return
-
-        if (
-            self.round_end is None
-            or datetime.fromtimestamp(event.timestamp, timezone.utc) > self.round_end
-        ):
-            return
-
-        old_score = self.scores.get(event.user)
-        new_score = Score.from_dustkid_event(event)
-        if old_score is None or self._scoring_key(old_score) < self._scoring_key(
-            new_score
-        ):
-            logger.info("Lobby(%s) User %s PB'd: %s", self.id, event.user, new_score)
-            self.scores[event.user] = new_score
-            await self.send_state()
 
 
 class Lobby(BaseLobby):
@@ -322,50 +306,165 @@ class Lobby(BaseLobby):
     def __init__(self, id: int):
         super().__init__(id)
 
-        self.break_end: datetime | None = None
-        self.winner: str | None = None
+        self.password = "".join(
+            random.choices(string.ascii_lowercase + string.digits, k=20)
+        )
 
-    @staticmethod
-    def _scoring_key(score: Score) -> tuple:
-        return score.ss_key
+        self.condition = None
+
+        self.warmup_time = timedelta(minutes=4)
+        self.break_time = timedelta(seconds=15)
+        self.round_time = timedelta(minutes=1)
+
+        self.warmup_end = None
+        self.break_end = None
+        self.round_end = None
+
+        # User id -> User
+        self.users: dict[int, User] = {}
+        self.allow_joining = True
+
+        self.level: Level | None = None
+        self.scores: dict[int, Score] = {}
+
+        self.start_round = asyncio.Event()
+        self.eliminated: set[int] = set()
+
+    async def on_start_round(self, password: str, level_id: int, mode: str) -> None:
+        if password != self.password:
+            logger.warning("Wrong password! Not starting round")
+            return
+
+        new_level = None
+        if self.level is not None and self.level.id == level_id:
+            new_level = self.level
+        else:
+            new_level = await Level.from_id(level_id)
+            if new_level is None:
+                logger.warning(
+                    "Could not find level with id: %s. Not starting round", level_id
+                )
+                return
+
+        if self.start_round.is_set():
+            logger.warning("A round is already in progress. Not starting round")
+            return
+
+        logger.info("Starting new round of level: %s", new_level.filename)
+        if mode == "any":
+            self.condition = lambda _: True
+        elif mode == "ss":
+            self.condition = (
+                lambda event: event.score_completion == 5 and event.score_finesse == 5
+            )
+        self.level = new_level
+        self.start_round.set()
+
+    async def on_login(self, client: Client) -> None:
+        assert client.user is not None
+
+        if self.allow_joining:
+            user = client.user
+            self.users[user.id] = user
+            await self.send_state()
+
+    async def on_logout(self, client: Client) -> None:
+        pass
+
+    async def on_dustkid_event(self, event: Event) -> None:
+        """Update scores and send state if this is a new best."""
+        if self.level is None or event.level != self.level.filename:
+            return
+
+        if self.condition is None or not self.condition(event):
+            return
+
+        event_time = datetime.fromtimestamp(event.timestamp, timezone.utc)
+        if (
+            self.round_end is None
+            or event_time < self.round_end - self.round_time
+            or event_time > self.round_end
+        ):
+            return
+
+        old_score = self.scores.get(event.user)
+        new_score = Score.from_dustkid_event(event)
+        if old_score is None or old_score.timestamp > new_score.timestamp:
+            logger.info("Lobby(%s) User %s PB'd: %s", self.id, event.user, new_score)
+            self.scores[event.user] = new_score
+            await self.send_state()
+
+    @property
+    def remaining(self):
+        return set(self.users) - self.eliminated
 
     async def _run(self) -> None:
-        # Start the first round immediately
-        await self._end_round(timedelta())
         while True:
-            # Give a couple of seconds of leeway to account for network delays
-            await asyncio.sleep(ROUND_DURATION.seconds + 2)
-            await self._end_round(BREAK_DURATION)
+            # Wait for the signal to start
+            await self.start_round.wait()
+            self.allow_joining = False
 
-    async def _end_round(self, break_time: timedelta) -> None:
-        # Announce the winner
-        self.round_end = None
-        self.break_end = datetime.now(timezone.utc) + break_time
-        if self.scores:
-            self.winner = self.users[
-                sorted(
-                    self.scores,
-                    key=lambda user_id: self._scoring_key(self.scores[user_id]),
-                    reverse=True,
-                )[0]
-            ].name
-            logger.info("Lobby(%s) %s wins!", self.id, self.winner)
-        await self.send_state()
+            await self._run_game()
 
-        # Find a new level during the break
-        new_level_task = asyncio.create_task(random_level(max_level_id=11_000))
-        await asyncio.sleep(break_time.seconds)
-        new_level = await new_level_task
+            # Reset for a new level
+            await self.send_state()
+            self.start_round.clear()
+            self.allow_joining = True
 
-        # Switch to new level
-        logger.info(
-            "Lobby(%s) starting new round with level %s", self.id, new_level.filename
-        )
-        self.winner = None
-        self.scores = {}
-        self.level = new_level
-        self.round_end = datetime.now(timezone.utc) + ROUND_DURATION
+    async def _run_game(self) -> None:
+        # Warmup time
+        self.warmup_end = datetime.now(timezone.utc) + self.warmup_time
+        asyncio.create_task(self.send_state())
+        logger.info("Warmup starting")
+        await asyncio.sleep(self.warmup_time.seconds)
+        logger.info("Warmup ended")
+        self.warmup_end = None
+
+        # Do rounds until one player remains
+        while len(self.remaining) > 1:
+            logger.info("Remaining users: %s", self.remaining)
+            # Give the client both to eliminate any delay when the round starts
+            self.break_end = datetime.now(timezone.utc) + self.break_time
+            self.round_end = self.break_end + self.round_time
+
+            asyncio.create_task(self.send_state())
+            logger.info("Break started")
+            await asyncio.sleep(self.break_time.seconds)
+            logger.info("Break ended")
+            logger.info("Round started")
+            await asyncio.sleep(self.round_time.seconds + 2)
+            logger.info("Round ended")
+
+            # Eliminate any players without a score, or the last scoring player
+            out = self.remaining - set(self.scores)
+            if not out:
+                # Abuse ordered dictionaries and stable sorting to ensure that
+                # scores with equal timestamps maintain their ordering
+                sorted_scores = sorted(
+                    [
+                        (user_id, score)
+                        for user_id, score in self.scores.items()
+                        if user_id in self.remaining
+                    ],
+                    key=lambda user_score: user_score[1].timestamp,
+                )
+                out = {sorted_scores[-1][0]}
+            # Don't allow everyone to go out in the same round (we want a winner)
+            if out == self.remaining:
+                out = set()
+            logger.info("Eliminating users: %s", out)
+            self.eliminated |= out
+
+            # Reset for the next round
+            self.scores = {}
+
         self.break_end = None
+        self.round_end = None
+        await self.send_state()
+        await asyncio.sleep(10)
+
+        # Reset for the next game
+        self.eliminated = set()
         await self.send_state()
 
     def _state(self) -> messages.State:
@@ -378,11 +477,13 @@ class Lobby(BaseLobby):
                 "time": score.time,
             }
             for user_id, score in sorted(
-                self.scores.items(),
-                key=lambda kv: self._scoring_key(kv[1]),
-                reverse=True,
+                [
+                    (user_id, score)
+                    for user_id, score in self.scores.items()
+                    if user_id in self.remaining
+                ],
+                key=lambda user_score: user_score[1].timestamp,
             )
-            if user_id in self.users
         ]
         scores.extend(
             [
@@ -393,8 +494,7 @@ class Lobby(BaseLobby):
                     "finesse": 0,
                     "time": 0,
                 }
-                for user_id in self.users
-                if user_id not in self.scores
+                for user_id in self.remaining - set(self.scores)
             ]
         )
 
@@ -402,8 +502,8 @@ class Lobby(BaseLobby):
             "type": "state",
             "lobby_id": self.id,
             "level": None,
+            "warmup_timer": None,
             "round_timer": None,
-            "winner": self.winner,
             "break_timer": None,
             "users": {user.id: user.name for user in self.users.values()},
             "scores": scores,
@@ -418,15 +518,21 @@ class Lobby(BaseLobby):
                 "dustkid": self.level.dustkid,
             }
 
+        if self.warmup_end is not None:
+            state["warmup_timer"] = {
+                "start": (self.warmup_end - self.warmup_time).isoformat(),
+                "end": self.warmup_end.isoformat(),
+            }
+
         if self.round_end is not None:
             state["round_timer"] = {
-                "start": (self.round_end - ROUND_DURATION).isoformat(),
+                "start": (self.round_end - self.round_time).isoformat(),
                 "end": self.round_end.isoformat(),
             }
 
         if self.break_end is not None:
             state["break_timer"] = {
-                "start": (self.break_end - BREAK_DURATION).isoformat(),
+                "start": (self.break_end - self.break_time).isoformat(),
                 "end": self.break_end.isoformat(),
             }
 
@@ -495,6 +601,14 @@ class Manager:
         )
         if message["type"] == "create_lobby":
             await self.handle_create_lobby(identity)
+        if message["type"] == "start_round":
+            await self.handle_start_round(
+                identity,
+                message["lobby_id"],
+                message["password"],
+                message["level_id"],
+                message["mode"],
+            )
         elif message["type"] == "join":
             await self.handle_join(identity, message["lobby_id"])
         elif message["type"] == "leave":
@@ -513,11 +627,26 @@ class Manager:
         if lobby is None:
             response = {"type": "error"}
         else:
-            response = {"type": "created_lobby", "lobby_id": lobby.id}
+            response = {
+                "type": "created_lobby",
+                "lobby_id": lobby.id,
+                "password": lobby.password,
+            }
 
         await self.clients_socket.send_multipart(
             [identity, messages.dump_bytes(response)]
         )
+
+    async def handle_start_round(
+        self, identity: bytes, lobby_id: int, password: str, level_id: int, mode: str
+    ) -> None:
+        if lobby_id not in Lobby.lobbies:
+            # TODO: Send back BadRequest
+            return
+
+        lobby = Lobby.lobbies[lobby_id]
+
+        await lobby.on_start_round(password, level_id, mode)
 
     async def handle_join(self, identity: bytes, lobby_id: int) -> None:
         if identity in self.clients:
@@ -567,8 +696,7 @@ class Manager:
             # TODO: Send back BadRequest
             return
 
-        client.user = user
-        await client.lobby.send_state()
+        await client.login(user)
 
     async def handle_logout(self, identity: bytes) -> None:
         if identity not in self.clients:
@@ -576,8 +704,7 @@ class Manager:
             return
 
         client = self.clients[identity]
-        client.user = None
-        await client.lobby.send_state()
+        await client.logout()
 
     async def handle_dustkid_event(self, event: Event) -> None:
         logger.debug("Received dustkid event: %s", event)
