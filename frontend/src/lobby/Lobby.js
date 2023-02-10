@@ -13,10 +13,10 @@ function Lobby({ state }) {
           text={"Warmup:"}
         />
       )}
-      {state.break_timer && (
+      {state.countdown_timer && (
         <Timer
-          start={new Date(state.break_timer.start)}
-          end={new Date(state.break_timer.end)}
+          start={new Date(state.countdown_timer.start)}
+          end={new Date(state.countdown_timer.end)}
           text={"Next round in:"}
         />
       )}

@@ -9,7 +9,7 @@ function formSubmit(path, event) {
 function Admin({ lobby_id, password }) {
   return (
     <>
-      <form onSubmit={(event) => formSubmit("../api/start_round", event)}>
+      <form onSubmit={(event) => formSubmit("../api/start_game", event)}>
         <input type="hidden" name="lobby_id" value={lobby_id} />
         <input type="hidden" name="password" value={password} />
         <label>
@@ -29,13 +29,19 @@ function Admin({ lobby_id, password }) {
         </label>
         <br />
         <label>
-          Break time: <input name="break_seconds" defaultValue="15" />
+          Countdown time: <input name="countdown_seconds" defaultValue="5" />
         </label>
         <br />
         <label>
           Round time: <input name="round_seconds" defaultValue="60" />
         </label>
         <br />
+        <button>Start game</button>
+      </form>
+      <br />
+      <form onSubmit={(event) => formSubmit("../api/start_round", event)}>
+        <input type="hidden" name="lobby_id" value={lobby_id} />
+        <input type="hidden" name="password" value={password} />
         <button>Start round</button>
       </form>
       <br />

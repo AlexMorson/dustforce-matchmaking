@@ -39,8 +39,8 @@ async def create_lobby():
     return redirect(f"../lobby/{lobby_id}?admin={password}")
 
 
-@app.route("/api/start_round", methods=["POST"])
-async def start_round():
+@app.route("/api/start_game", methods=["POST"])
+async def start_game():
     args = await request.form
 
     lobby_id = args.get("lobby_id")
@@ -83,9 +83,9 @@ async def start_round():
     if not isinstance(warmup_seconds, int):
         return warmup_seconds
 
-    break_seconds = parse_positive_int("break_seconds")
-    if not isinstance(break_seconds, int):
-        return break_seconds
+    countdown_seconds = parse_positive_int("countdown_seconds")
+    if not isinstance(countdown_seconds, int):
+        return countdown_seconds
 
     round_seconds = parse_positive_int("round_seconds")
     if not isinstance(round_seconds, int):
@@ -95,14 +95,43 @@ async def start_round():
     backend.send(
         messages.dump_bytes(
             {
-                "type": "start_round",
+                "type": "start_game",
                 "lobby_id": lobby_id,
                 "password": password,
                 "level_id": level_id,
                 "mode": mode,
                 "warmup_seconds": warmup_seconds,
-                "break_seconds": break_seconds,
+                "countdown_seconds": countdown_seconds,
                 "round_seconds": round_seconds,
+            }
+        )
+    )
+
+    return ""
+
+@app.route("/api/start_round", methods=["POST"])
+async def start_round():
+    args = await request.form
+
+    lobby_id = args.get("lobby_id")
+    if lobby_id is None:
+        return "Missing lobby_id", 400
+    try:
+        lobby_id = int(lobby_id)
+    except ValueError:
+        return "Invalid lobby id", 400
+
+    password = args.get("password")
+    if password is None:
+        return "Missing password", 400
+
+    backend = open_connection()
+    backend.send(
+        messages.dump_bytes(
+            {
+                "type": "start_round",
+                "lobby_id": lobby_id,
+                "password": password,
             }
         )
     )

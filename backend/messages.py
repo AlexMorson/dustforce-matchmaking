@@ -59,15 +59,21 @@ class Error(TypedDict):
     type: Literal["error"]
 
 
-class StartRound(TypedDict):
-    type: Literal["start_round"]
+class StartGame(TypedDict):
+    type: Literal["start_game"]
     lobby_id: int
     password: str
     level_id: int
     mode: str
     warmup_seconds: int
-    break_seconds: int
+    countdown_seconds: int
     round_seconds: int
+
+
+class StartRound(TypedDict):
+    type: Literal["start_round"]
+    lobby_id: int
+    password: str
 
 
 class Join(TypedDict):
@@ -119,12 +125,12 @@ class State(TypedDict):
     lobby_id: int
     level: Level | None
     warmup_timer: Timer | None
+    countdown_timer: Timer | None
     round_timer: Timer | None
-    break_timer: Timer | None
     users: dict[int, str]
     scores: list[Score]
 
 
 Message = (
-    CreateLobby | CreatedLobby | Error | StartRound | Join | Leave | State | Ping | Pong
+    CreateLobby | CreatedLobby | Error | StartGame | StartRound | Join | Leave | State | Ping | Pong
 )

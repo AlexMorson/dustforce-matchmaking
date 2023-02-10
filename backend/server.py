@@ -313,11 +313,11 @@ class Lobby(BaseLobby):
         self.condition = None
 
         self.warmup_time = timedelta(minutes=4)
-        self.break_time = timedelta(seconds=15)
+        self.countdown_time = timedelta(seconds=15)
         self.round_time = timedelta(minutes=1)
 
         self.warmup_end = None
-        self.break_end = None
+        self.countdown_end = None
         self.round_end = None
 
         # User id -> User
@@ -327,16 +327,17 @@ class Lobby(BaseLobby):
         self.level: Level | None = None
         self.scores: dict[int, Score] = {}
 
+        self.start_game = asyncio.Event()
         self.start_round = asyncio.Event()
         self.eliminated: set[int] = set()
 
-    async def on_start_round(
+    async def on_start_game(
         self,
         password: str,
         level_id: int,
         mode: str,
         warmup_seconds: int,
-        break_seconds: int,
+        countdown_seconds: int,
         round_seconds: int,
     ) -> None:
         if password != self.password:
@@ -350,15 +351,15 @@ class Lobby(BaseLobby):
             new_level = await Level.from_id(level_id)
             if new_level is None:
                 logger.warning(
-                    "Could not find level with id: %s. Not starting round", level_id
+                    "Could not find level with id: %s. Not starting game", level_id
                 )
                 return
 
-        if self.start_round.is_set():
-            logger.warning("A round is already in progress. Not starting round")
+        if self.start_game.is_set():
+            logger.warning("A game is already in progress. Not starting game")
             return
 
-        logger.info("Starting new round of level: %s", new_level.filename)
+        logger.info("Starting new game of level: %s", new_level.filename)
         if mode == "any":
             self.condition = lambda _: True
         elif mode == "ss":
@@ -366,9 +367,25 @@ class Lobby(BaseLobby):
                 lambda event: event.score_completion == 5 and event.score_finesse == 5
             )
         self.warmup_time = timedelta(seconds=warmup_seconds)
-        self.break_time = timedelta(seconds=break_seconds)
+        self.countdown_time = timedelta(seconds=countdown_seconds)
         self.round_time = timedelta(seconds=round_seconds)
         self.level = new_level
+        self.start_game.set()
+
+    async def on_start_round(self, password: str) -> None:
+        if password != self.password:
+            logger.warning("Wrong password! Not starting round")
+            return
+
+        if not self.start_game.is_set():
+            logger.warning("A game is not in progress. Cannot start round")
+            return
+
+        if self.start_round.is_set():
+            logger.warning("A round is already in progress. Not starting round")
+            return
+
+        logger.info("Starting new round")
         self.start_round.set()
 
     async def on_login(self, client: Client) -> None:
@@ -412,15 +429,13 @@ class Lobby(BaseLobby):
     async def _run(self) -> None:
         while True:
             # Wait for the signal to start
-            await self.start_round.wait()
-            self.allow_joining = False
+            await self.start_game.wait()
 
             await self._run_game()
 
             # Reset for a new level
             await self.send_state()
-            self.start_round.clear()
-            self.allow_joining = True
+            self.start_game.clear()
 
     async def _run_game(self) -> None:
         # Warmup time
@@ -431,17 +446,22 @@ class Lobby(BaseLobby):
         logger.info("Warmup ended")
         self.warmup_end = None
 
+        self.allow_joining = False
+
         # Do rounds until one player remains
         while len(self.remaining) > 1:
+            # Wait for start signal
+            await self.start_round.wait()
+
             logger.info("Remaining users: %s", self.remaining)
             # Give the client both to eliminate any delay when the round starts
-            self.break_end = datetime.now(timezone.utc) + self.break_time
-            self.round_end = self.break_end + self.round_time
+            self.countdown_end = datetime.now(timezone.utc) + self.countdown_time
+            self.round_end = self.countdown_end + self.round_time
 
             asyncio.create_task(self.send_state())
-            logger.info("Break started")
-            await asyncio.sleep(self.break_time.seconds)
-            logger.info("Break ended")
+            logger.info("Countdown started")
+            await asyncio.sleep(self.countdown_time.seconds)
+            logger.info("Countdown ended")
             logger.info("Round started")
             await asyncio.sleep(self.round_time.seconds + 2)
             logger.info("Round ended")
@@ -468,8 +488,11 @@ class Lobby(BaseLobby):
 
             # Reset for the next round
             self.scores = {}
+            self.start_round.clear()
 
-        self.break_end = None
+        self.allow_joining = False
+
+        self.countdown_end = None
         self.round_end = None
         await self.send_state()
         await asyncio.sleep(10)
@@ -514,8 +537,8 @@ class Lobby(BaseLobby):
             "lobby_id": self.id,
             "level": None,
             "warmup_timer": None,
+            "countdown_timer": None,
             "round_timer": None,
-            "break_timer": None,
             "users": {user.id: user.name for user in self.users.values()},
             "scores": scores,
         }
@@ -535,16 +558,16 @@ class Lobby(BaseLobby):
                 "end": self.warmup_end.isoformat(),
             }
 
+        if self.countdown_end is not None:
+            state["countdown_timer"] = {
+                "start": (self.countdown_end - self.countdown_time).isoformat(),
+                "end": self.countdown_end.isoformat(),
+            }
+
         if self.round_end is not None:
             state["round_timer"] = {
                 "start": (self.round_end - self.round_time).isoformat(),
                 "end": self.round_end.isoformat(),
-            }
-
-        if self.break_end is not None:
-            state["break_timer"] = {
-                "start": (self.break_end - self.break_time).isoformat(),
-                "end": self.break_end.isoformat(),
             }
 
         return state
@@ -612,16 +635,20 @@ class Manager:
         )
         if message["type"] == "create_lobby":
             await self.handle_create_lobby(identity)
-        if message["type"] == "start_round":
-            await self.handle_start_round(
+        if message["type"] == "start_game":
+            await self.handle_start_game(
                 identity,
                 message["lobby_id"],
                 message["password"],
                 message["level_id"],
                 message["mode"],
                 message["warmup_seconds"],
-                message["break_seconds"],
+                message["countdown_seconds"],
                 message["round_seconds"],
+            )
+        elif message["type"] == "start_round":
+            await self.handle_start_round(
+                identity, message["lobby_id"], message["password"]
             )
         elif message["type"] == "join":
             await self.handle_join(identity, message["lobby_id"])
@@ -651,7 +678,7 @@ class Manager:
             [identity, messages.dump_bytes(response)]
         )
 
-    async def handle_start_round(
+    async def handle_start_game(
         self,
         identity: bytes,
         lobby_id: int,
@@ -659,7 +686,7 @@ class Manager:
         level_id: int,
         mode: str,
         warmup_seconds: int,
-        break_seconds: int,
+        countdown_seconds: int,
         round_seconds: int,
     ) -> None:
         if lobby_id not in Lobby.lobbies:
@@ -668,9 +695,18 @@ class Manager:
 
         lobby = Lobby.lobbies[lobby_id]
 
-        await lobby.on_start_round(
-            password, level_id, mode, warmup_seconds, break_seconds, round_seconds
+        await lobby.on_start_game(
+            password, level_id, mode, warmup_seconds, countdown_seconds, round_seconds
         )
+
+    async def handle_start_round(self, identity: bytes, lobby_id: int, password: str) -> None:
+        if lobby_id not in Lobby.lobbies:
+            # TODO: Send back BadRequest
+            return
+
+        lobby = Lobby.lobbies[lobby_id]
+
+        await lobby.on_start_round(password)
 
     async def handle_join(self, identity: bytes, lobby_id: int) -> None:
         if identity in self.clients:
