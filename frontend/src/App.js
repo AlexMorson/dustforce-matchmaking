@@ -86,8 +86,7 @@ class ReconnectingWebSocket {
     };
     this.ws.onclose = (event) => {
       console.debug("Websocket onclose", event);
-      if (event.wasClean) this.close();
-      else if (!this.closed) this.reconnect();
+      this.reconnect();
     };
   }
 
@@ -97,7 +96,7 @@ class ReconnectingWebSocket {
     clearTimeout(this.pongTimer);
     this.ws.close();
     ++this.attempts;
-    const delay = 1000 * Math.min(30, Math.pow(2, this.attempts - 1));
+    const delay = Math.min(30 * 1000, 100 * Math.pow(2, this.attempts - 1));
     console.debug(`Attempt ${this.attempts}, waiting ${delay}ms before reconnecting`);
     setTimeout(() => this.connect(), delay);
   }
@@ -140,7 +139,6 @@ function useSocket(lobby_id) {
 
     return new ReconnectingWebSocket(url);
   });
-  useEffect(() => () => socket.close(), [socket]);
   return socket;
 }
 
@@ -200,7 +198,7 @@ function Matchmaking() {
     const { type, ...args } = data;
 
     if (type === "pong") {
-      console.info("Got pong");
+      console.debug("Got pong");
     } else if (type === "state") {
       console.info("Received new state", args);
       setState(args);

@@ -61,7 +61,7 @@ class WebsocketHandler:
                     read_backend = self.backend.recv()
                     pending.add(read_backend)
         except ConnectionClosedOK:
-            pass
+            logger.debug("Connection closed cleanly")
         except ConnectionClosedError as error:
             logger.warning("Connection closed with an error: %s", error)
         finally:
