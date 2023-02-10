@@ -4,12 +4,20 @@ import "./Timer.css";
 
 function formatTime(ms) {
   ms = Math.max(0, ms);
-  // const milliseconds = ms % 1000;
+  const milliseconds = ms % 1000;
   const seconds = Math.floor(ms / 1000) % 60;
   const minutes = Math.floor(ms / 1000 / 60); // % 60;
   // const hours = Math.floor(ms / 1000 / 60 / 60);
 
-  return minutes.toString() + ":" + seconds.toString().padStart(2, "0");
+  const fraction = Math.floor(milliseconds / 100);
+
+  return (
+    minutes.toString() +
+    ":" +
+    seconds.toString().padStart(2, "0") +
+    "." +
+    fraction.toString()
+  );
 }
 
 function useTime() {
@@ -17,7 +25,7 @@ function useTime() {
   useEffect(() => {
     const id = setInterval(() => {
       setTime(new Date());
-    }, 1000);
+    }, 100);
     return () => clearInterval(id);
   }, []);
   return time;
