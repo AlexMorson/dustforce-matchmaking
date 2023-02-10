@@ -67,6 +67,30 @@ async def start_round():
     if mode not in ("any", "ss"):
         return "Invalid mode", 400
 
+    def parse_positive_int(name) -> int | tuple[str, int]:
+        arg = args.get(name)
+        if arg is None:
+            return f"Missing {name}", 400
+        try:
+            arg = int(arg)
+        except ValueError:
+            return f"Invalid {name}", 400
+        if arg < 0:
+            return f"Invalid {name}", 400
+        return arg
+
+    warmup_seconds = parse_positive_int("warmup_seconds")
+    if not isinstance(warmup_seconds, int):
+        return warmup_seconds
+
+    break_seconds = parse_positive_int("break_seconds")
+    if not isinstance(break_seconds, int):
+        return break_seconds
+
+    round_seconds = parse_positive_int("round_seconds")
+    if not isinstance(round_seconds, int):
+        return round_seconds
+
     backend = open_connection()
     backend.send(
         messages.dump_bytes(
@@ -76,6 +100,9 @@ async def start_round():
                 "password": password,
                 "level_id": level_id,
                 "mode": mode,
+                "warmup_seconds": warmup_seconds,
+                "break_seconds": break_seconds,
+                "round_seconds": round_seconds,
             }
         )
     )

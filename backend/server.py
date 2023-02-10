@@ -330,7 +330,15 @@ class Lobby(BaseLobby):
         self.start_round = asyncio.Event()
         self.eliminated: set[int] = set()
 
-    async def on_start_round(self, password: str, level_id: int, mode: str) -> None:
+    async def on_start_round(
+        self,
+        password: str,
+        level_id: int,
+        mode: str,
+        warmup_seconds: int,
+        break_seconds: int,
+        round_seconds: int,
+    ) -> None:
         if password != self.password:
             logger.warning("Wrong password! Not starting round")
             return
@@ -357,6 +365,9 @@ class Lobby(BaseLobby):
             self.condition = (
                 lambda event: event.score_completion == 5 and event.score_finesse == 5
             )
+        self.warmup_time = timedelta(seconds=warmup_seconds)
+        self.break_time = timedelta(seconds=break_seconds)
+        self.round_time = timedelta(seconds=round_seconds)
         self.level = new_level
         self.start_round.set()
 
@@ -608,6 +619,9 @@ class Manager:
                 message["password"],
                 message["level_id"],
                 message["mode"],
+                message["warmup_seconds"],
+                message["break_seconds"],
+                message["round_seconds"],
             )
         elif message["type"] == "join":
             await self.handle_join(identity, message["lobby_id"])
@@ -638,7 +652,15 @@ class Manager:
         )
 
     async def handle_start_round(
-        self, identity: bytes, lobby_id: int, password: str, level_id: int, mode: str
+        self,
+        identity: bytes,
+        lobby_id: int,
+        password: str,
+        level_id: int,
+        mode: str,
+        warmup_seconds: int,
+        break_seconds: int,
+        round_seconds: int,
     ) -> None:
         if lobby_id not in Lobby.lobbies:
             # TODO: Send back BadRequest
@@ -646,7 +668,9 @@ class Manager:
 
         lobby = Lobby.lobbies[lobby_id]
 
-        await lobby.on_start_round(password, level_id, mode)
+        await lobby.on_start_round(
+            password, level_id, mode, warmup_seconds, break_seconds, round_seconds
+        )
 
     async def handle_join(self, identity: bytes, lobby_id: int) -> None:
         if identity in self.clients:

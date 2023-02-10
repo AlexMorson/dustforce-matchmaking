@@ -65,6 +65,9 @@ class StartRound(TypedDict):
     password: str
     level_id: int
     mode: str
+    warmup_seconds: int
+    break_seconds: int
+    round_seconds: int
 
 
 class Join(TypedDict):
@@ -122,4 +125,6 @@ class State(TypedDict):
     scores: list[Score]
 
 
-Message = CreateLobby | CreatedLobby | Error | StartRound | Join | Leave | State | Ping | Pong
+Message = (
+    CreateLobby | CreatedLobby | Error | StartRound | Join | Leave | State | Ping | Pong
+)
