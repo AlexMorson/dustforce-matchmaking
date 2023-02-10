@@ -407,11 +407,12 @@ class Lobby(BaseLobby):
         if self.condition is None or not self.condition(event):
             return
 
-        event_time = datetime.fromtimestamp(event.timestamp, timezone.utc)
+        submission_time = datetime.fromtimestamp(event.timestamp, timezone.utc)
+        replay_length = timedelta(milliseconds=event.time)
         if (
             self.round_end is None
-            or event_time < self.round_end - self.round_time
-            or event_time > self.round_end
+            or submission_time - replay_length < self.round_end - self.round_time
+            or submission_time > self.round_end
         ):
             return
 
@@ -699,7 +700,9 @@ class Manager:
             password, level_id, mode, warmup_seconds, countdown_seconds, round_seconds
         )
 
-    async def handle_start_round(self, identity: bytes, lobby_id: int, password: str) -> None:
+    async def handle_start_round(
+        self, identity: bytes, lobby_id: int, password: str
+    ) -> None:
         if lobby_id not in Lobby.lobbies:
             # TODO: Send back BadRequest
             return
