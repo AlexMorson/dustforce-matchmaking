@@ -159,12 +159,17 @@ function CreateLobby() {
   );
 }
 
+function getUser() {
+  const match = document.cookie.match(/(?:^|; )user=([^;]+)/);
+  if (match) return match[1];
+}
+
 function Matchmaking() {
   const { lobby_id } = useParams();
   const socket = useSocket(lobby_id);
 
   const [state, setState] = useState({});
-  const [user, setUser] = useState("");
+  const [user, setUser] = useState(getUser);
   const [joined, setJoined] = useState(false);
 
   const urlParams = new URL(window.location.href).searchParams;
