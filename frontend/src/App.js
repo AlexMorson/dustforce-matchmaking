@@ -67,47 +67,63 @@ class ReconnectingWebSocket {
   }
 
   connect() {
-    if (this.closed) return;
+    console.debug("Connecting websocket");
+    if (this.closed) {
+      console.debug("Websocket is closed, not connecting");
+      return;
+    }
 
     this.ws = new WebSocket(this.url);
     this.ws.onmessage = (event) => {
+      console.debug("Websocket onevent", event);
       this.heartbeat();
       this.onmessage(event);
     };
     this.ws.onopen = (event) => {
+      console.debug("Websocket onopen", event);
       this.attempts = 0;
       this.heartbeat();
     };
     this.ws.onclose = (event) => {
+      console.debug("Websocket onclose", event);
       if (event.wasClean) this.close();
       else if (!this.closed) this.reconnect();
     };
   }
 
   reconnect() {
+    console.debug("Reconnecting websocket");
     clearTimeout(this.pingTimer);
     clearTimeout(this.pongTimer);
     this.ws.close();
     ++this.attempts;
-    setTimeout(
-      () => this.connect(),
-      1000 * Math.min(30, Math.pow(2, this.attempts - 1))
-    );
+    const delay = 1000 * Math.min(30, Math.pow(2, this.attempts - 1));
+    console.debug(`Attempt ${this.attempts}, waiting ${delay}ms before reconnecting`);
+    setTimeout(() => this.connect(), delay);
   }
 
   heartbeat() {
+    console.debug("Got heartbeat");
     clearTimeout(this.pingTimer);
     clearTimeout(this.pongTimer);
     this.pingTimer = setTimeout(() => this.ping(), 5000);
   }
 
   ping() {
+    console.debug("Sending ping");
     this.ws.send(JSON.stringify({ type: "ping" }));
-    this.pongTimer = setTimeout(() => this.reconnect(), 5000);
+    this.pongTimer = setTimeout(() => {
+        console.warn("Did not receive pong, reconnecting");
+        this.reconnect();
+    }, 5000);
   }
 
   close() {
-    if (this.closed) return;
+    console.debug("Closing websocket");
+    if (this.closed) {
+      console.debug("Websocket already closed");
+      return;
+    }
     this.closed = true;
     clearTimeout(this.pingTimer);
     clearTimeout(this.pongTimer);
@@ -184,9 +200,9 @@ function Matchmaking() {
     const { type, ...args } = data;
 
     if (type === "pong") {
-      console.debug("Got pong");
+      console.info("Got pong");
     } else if (type === "state") {
-      console.debug("Received new state", args);
+      console.info("Received new state", args);
       setState(args);
     } else {
       console.warn("Received unknown event type", data);
