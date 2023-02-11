@@ -452,6 +452,8 @@ class Lobby(BaseLobby):
         self.warmup_end = None
         await self.send_state()
 
+        first_round = True
+
         # Do rounds until one player remains
         out = set()
         while len(self.remaining) - len(out) > 1:
@@ -483,22 +485,34 @@ class Lobby(BaseLobby):
                 if user_id not in self.scores
                 or not self.condition(self.scores[user_id])
             }
-            # If all players scored, eliminate the last player to do so
-            if not out:
-                # Abuse ordered dictionaries and stable sorting to ensure that
-                # scores with equal timestamps maintain their ordering
-                sorted_scores = sorted(
-                    [
-                        (user_id, score)
-                        for user_id, score in self.scores.items()
-                        if user_id in self.remaining
-                    ],
-                    key=lambda user_score: user_score[1].timestamp,
-                )
-                out = {sorted_scores[-1][0]}
+            # Abuse ordered dictionaries and stable sorting to ensure that
+            # scores with equal timestamps maintain their ordering
+            sorted_valid_scores = sorted(
+                [
+                    (user_id, score)
+                    for user_id, score in self.scores.items()
+                    if user_id in self.remaining
+                    and self.condition(score)
+                ],
+                key=lambda user_score: user_score[1].timestamp,
+            )
+            if len(self.remaining) <= 8:
+                # If all players scored, eliminate the last player to do so
+                if not out:
+                    out = {sorted_valid_scores[-1][0]}
+            else:
+                # eliminate 2 per round until 8 remain
+                if len(out) < 2:
+                    count = 2 - len(out)
+                    out |= set(user_id for user_id, _ in sorted_valid_scores[-count:])
             # Don't allow everyone to go out in the same round (we want a winner)
             if out == self.remaining:
                 out = set()
+
+            # First round doesn't eliminate anyone
+            if first_round:
+                out = set()
+                first_round = False
             logger.info("Eliminating users: %s", out)
 
         self.eliminated |= out
