@@ -447,12 +447,11 @@ class Lobby(BaseLobby):
         logger.info("Warmup ended")
         self.warmup_end = None
 
-        self.allow_joining = False
-
         # Do rounds until one player remains
         while len(self.remaining) > 1:
             # Wait for start signal
             await self.start_round.wait()
+            self.allow_joining = False
 
             logger.info("Remaining users: %s", self.remaining)
             # Give the client both to eliminate any delay when the round starts
@@ -491,14 +490,13 @@ class Lobby(BaseLobby):
             self.scores = {}
             self.start_round.clear()
 
-        self.allow_joining = False
-
         self.countdown_end = None
         self.round_end = None
         await self.send_state()
         await asyncio.sleep(10)
 
         # Reset for the next game
+        self.allow_joining = True
         self.eliminated = set()
         await self.send_state()
 
