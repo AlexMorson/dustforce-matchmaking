@@ -496,7 +496,7 @@ class Lobby(BaseLobby):
                 ],
                 key=lambda user_score: user_score[1].timestamp,
             )
-            if len(self.remaining) <= 8:
+            if len(self.remaining) <= 9:
                 # If all players scored, eliminate the last player to do so
                 if not out:
                     out = {sorted_valid_scores[-1][0]}
