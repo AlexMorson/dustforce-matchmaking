@@ -173,6 +173,7 @@ function Matchmaking() {
 
   const urlParams = new URL(window.location.href).searchParams;
   const adminPassword = urlParams.get("admin");
+  const popout = urlParams.has("popout");
 
   // Subtract the scrollbar from the view width
   useEffect(() => {
@@ -219,6 +220,8 @@ function Matchmaking() {
   // Ignore query params
   const lobbyUrl = window.location.origin + window.location.pathname;
 
+  if (popout)
+      return <Lobby state={state} />;
   return (
     <div className={"center"}>
       {adminPassword && <Admin lobby_id={lobby_id} password={adminPassword} />}
