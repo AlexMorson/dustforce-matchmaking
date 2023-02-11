@@ -310,7 +310,8 @@ class Lobby(BaseLobby):
             random.choices(string.ascii_lowercase + string.digits, k=20)
         )
 
-        self.condition = None
+        self.condition = lambda _: True
+        self.scoring = lambda score: -score.time
 
         self.warmup_time = timedelta(minutes=4)
         self.countdown_time = timedelta(seconds=15)
@@ -325,6 +326,7 @@ class Lobby(BaseLobby):
         self.allow_joining = True
 
         self.level: Level | None = None
+        self.warmup_scores: dict[int, Score] = {}
         self.scores: dict[int, Score] = {}
 
         self.start_game = asyncio.Event()
@@ -362,10 +364,10 @@ class Lobby(BaseLobby):
         logger.info("Starting new game of level: %s", new_level.filename)
         if mode == "any":
             self.condition = lambda _: True
+            self.scoring = lambda score: -score.time
         elif mode == "ss":
-            self.condition = (
-                lambda event: event.score_completion == 5 and event.score_finesse == 5
-            )
+            self.condition = lambda score: score.completion == 5 and score.finesse == 5
+            self.scoring = lambda score: (score.completion + score.finesse, -score.time)
         self.warmup_time = timedelta(seconds=warmup_seconds)
         self.countdown_time = timedelta(seconds=countdown_seconds)
         self.round_time = timedelta(seconds=round_seconds)
@@ -404,24 +406,26 @@ class Lobby(BaseLobby):
         if self.level is None or event.level != self.level.filename:
             return
 
-        if self.condition is None or not self.condition(event):
+        new_score = Score.from_dustkid_event(event)
+
+        if self.warmup_end is not None:
+            old_score = self.warmup_scores.get(event.user)
+            if old_score is None or self.scoring(old_score) < self.scoring(new_score):
+                self.warmup_scores[event.user] = new_score
+                await self.send_state()
             return
 
         submission_time = datetime.fromtimestamp(event.timestamp, timezone.utc)
         replay_length = timedelta(milliseconds=event.time)
         if (
-            self.round_end is None
-            or submission_time - replay_length < self.round_end - self.round_time
-            or submission_time > self.round_end
+            self.round_end is not None
+            and submission_time - replay_length >= self.round_end - self.round_time
+            and submission_time <= self.round_end
         ):
-            return
-
-        old_score = self.scores.get(event.user)
-        new_score = Score.from_dustkid_event(event)
-        if old_score is None or old_score.timestamp > new_score.timestamp:
-            logger.info("Lobby(%s) User %s PB'd: %s", self.id, event.user, new_score)
-            self.scores[event.user] = new_score
-            await self.send_state()
+            old_score = self.scores.get(event.user)
+            if old_score is None or not self.condition(old_score):
+                self.scores[event.user] = new_score
+                await self.send_state()
 
     @property
     def remaining(self):
@@ -446,12 +450,18 @@ class Lobby(BaseLobby):
         await asyncio.sleep(self.warmup_time.seconds)
         logger.info("Warmup ended")
         self.warmup_end = None
+        await self.send_state()
 
         # Do rounds until one player remains
-        while len(self.remaining) > 1:
+        out = set()
+        while len(self.remaining) - len(out) > 1:
             # Wait for start signal
+            self.start_round.clear()
             await self.start_round.wait()
+            self.eliminated |= out
             self.allow_joining = False
+            self.warmup_scores = {}
+            self.scores = {}
 
             logger.info("Remaining users: %s", self.remaining)
             # Give the client both to eliminate any delay when the round starts
@@ -466,8 +476,14 @@ class Lobby(BaseLobby):
             await asyncio.sleep(self.round_time.seconds + 2)
             logger.info("Round ended")
 
-            # Eliminate any players without a score, or the last scoring player
-            out = self.remaining - set(self.scores)
+            # Eliminate any remaining players without a valid score
+            out = {
+                user_id
+                for user_id in self.remaining
+                if user_id not in self.scores
+                or not self.condition(self.scores[user_id])
+            }
+            # If all players scored, eliminate the last player to do so
             if not out:
                 # Abuse ordered dictionaries and stable sorting to ensure that
                 # scores with equal timestamps maintain their ordering
@@ -484,12 +500,10 @@ class Lobby(BaseLobby):
             if out == self.remaining:
                 out = set()
             logger.info("Eliminating users: %s", out)
-            self.eliminated |= out
 
-            # Reset for the next round
-            self.scores = {}
-            self.start_round.clear()
-
+        self.eliminated |= out
+        self.warmup_scores = {}
+        self.scores = {}
         self.countdown_end = None
         self.round_end = None
         await self.send_state()
@@ -501,35 +515,65 @@ class Lobby(BaseLobby):
         await self.send_state()
 
     def _state(self) -> messages.State:
-        scores: list[messages.Score] = [
-            {
-                "user_id": user_id,
-                "user_name": self.users[user_id].name,
-                "completion": score.completion,
-                "finesse": score.finesse,
-                "time": score.time,
-            }
-            for user_id, score in sorted(
-                [
-                    (user_id, score)
-                    for user_id, score in self.scores.items()
-                    if user_id in self.remaining
-                ],
-                key=lambda user_score: user_score[1].timestamp,
-            )
-        ]
-        scores.extend(
-            [
+        scores: list[messages.Score]
+        if self.warmup_scores:
+            scores = [
                 {
                     "user_id": user_id,
                     "user_name": self.users[user_id].name,
-                    "completion": 0,
-                    "finesse": 0,
-                    "time": 0,
+                    "completion": score.completion,
+                    "finesse": score.finesse,
+                    "time": score.time,
                 }
-                for user_id in self.remaining - set(self.scores)
+                for user_id, score in sorted(
+                    self.warmup_scores.items(),
+                    key=lambda user_score: self.scoring(user_score[1]),
+                )
+                if user_id in self.users
             ]
-        )
+            scores.extend(
+                [
+                    {
+                        "user_id": user_id,
+                        "user_name": self.users[user_id].name,
+                        "completion": 0,
+                        "finesse": 0,
+                        "time": 0,
+                    }
+                    for user_id in self.users
+                    if user_id not in self.warmup_scores
+                ]
+            )
+        else:
+            scores = [
+                {
+                    "user_id": user_id,
+                    "user_name": self.users[user_id].name,
+                    "completion": score.completion,
+                    "finesse": score.finesse,
+                    "time": score.time,
+                }
+                for user_id, score in sorted(
+                    [
+                        (user_id, score)
+                        for user_id, score in self.scores.items()
+                        if user_id in self.remaining
+                    ],
+                    key=lambda user_score: user_score[1].timestamp,
+                )
+            ]
+            scores.extend(
+                [
+                    {
+                        "user_id": user_id,
+                        "user_name": self.users[user_id].name,
+                        "completion": 0,
+                        "finesse": 0,
+                        "time": 0,
+                    }
+                    for user_id in self.remaining - set(self.scores)
+                ]
+            )
 
         state: messages.State = {
             "type": "state",
