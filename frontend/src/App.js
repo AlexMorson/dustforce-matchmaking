@@ -170,7 +170,6 @@ function Matchmaking() {
 
   const [state, setState] = useState({});
   const [user, setUser] = useState(getUser);
-  const [joined, setJoined] = useState(false);
 
   const urlParams = new URL(window.location.href).searchParams;
   const adminPassword = urlParams.get("admin");
@@ -215,12 +214,6 @@ function Matchmaking() {
   const onJoin = () => {
     if (!user || !/^[1-9][0-9]{0,5}$/.test(user)) return;
     socket.send(JSON.stringify({ type: "login", user_id: parseInt(user) }));
-    setJoined(true);
-  };
-
-  const onLeave = () => {
-    socket.send(JSON.stringify({ type: "logout" }));
-    setJoined(false);
   };
 
   // Ignore query params
@@ -237,11 +230,7 @@ function Matchmaking() {
           onInput={(e) => setUser(e.target.value)}
         />
       </label>
-      {joined ? (
-        <button onClick={onLeave}>Leave</button>
-      ) : (
-        <button onClick={onJoin}>Join</button>
-      )}
+      <button onClick={onJoin}>Join</button>
       {state.lobby_id !== undefined && (
         <p className={"lobby"}>
           Share lobby: <a href={lobbyUrl}>{lobbyUrl}</a>
